@@ -1,4 +1,4 @@
-# SPDB
+# How to get there
 
 Spatial routing prototype for Warsaw. The project compares travel options by car,
 public transport, and Park & Ride using GTFS-like transit data, OpenStreetMap
