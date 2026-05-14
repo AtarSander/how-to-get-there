@@ -1,0 +1,72 @@
+[
+  {
+    "parking_id": "metro-mlociny",
+    "name": "P+R Metro Mlociny",
+    "lat": 52.291,
+    "lon": 20.9299,
+    "metro_station": "Metro Mlociny",
+    "metro_line": "M1",
+    "metro_lat": 52.2907,
+    "metro_lon": 20.9298
+  },
+  {
+    "parking_id": "metro-wawrzyszew",
+    "name": "P+R Metro Wawrzyszew",
+    "lat": 52.2868,
+    "lon": 20.9391,
+    "metro_station": "Metro Wawrzyszew",
+    "metro_line": "M1",
+    "metro_lat": 52.2868,
+    "metro_lon": 20.9394
+  },
+  {
+    "parking_id": "metro-marymont",
+    "name": "P+R Metro Marymont",
+    "lat": 52.2711,
+    "lon": 20.9705,
+    "metro_station": "Metro Marymont",
+    "metro_line": "M1",
+    "metro_lat": 52.2712,
+    "metro_lon": 20.971
+  },
+  {
+    "parking_id": "metro-wilanowska",
+    "name": "P+R Metro Wilanowska",
+    "lat": 52.1817,
+    "lon": 21.0235,
+    "metro_station": "Metro Wilanowska",
+    "metro_line": "M1",
+    "metro_lat": 52.181,
+    "metro_lon": 21.023
+  },
+  {
+    "parking_id": "metro-ursynow",
+    "name": "P+R Metro Ursynow",
+    "lat": 52.1621,
+    "lon": 21.0275,
+    "metro_station": "Metro Ursynow",
+    "metro_line": "M1",
+    "metro_lat": 52.1615,
+    "metro_lon": 21.0278
+  },
+  {
+    "parking_id": "metro-stoklosy",
+    "name": "P+R Metro Stoklosy",
+    "lat": 52.1555,
+    "lon": 21.0343,
+    "metro_station": "Metro Stoklosy",
+    "metro_line": "M1",
+    "metro_lat": 52.1561,
+    "metro_lon": 21.0342
+  },
+  {
+    "parking_id": "metro-kondratowicza",
+    "name": "P+R Metro Kondratowicza",
+    "lat": 52.291,
+    "lon": 21.0488,
+    "metro_station": "Metro Kondratowicza",
+    "metro_line": "M2",
+    "metro_lat": 52.2912,
+    "metro_lon": 21.0493
+  }
+]

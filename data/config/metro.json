@@ -1,0 +1,75 @@
+{
+  "service_id": "metro_pseudo_daily",
+  "agency": {
+    "agency_id": "METRO",
+    "agency_name": "Metro Warszawskie - model",
+    "agency_url": "https://metro.waw.pl/",
+    "agency_timezone": "Europe/Warsaw",
+    "agency_lang": "pl"
+  },
+  "dwell_seconds": 20,
+  "average_speed_mps": 11.5,
+  "min_segment_seconds": 75,
+  "max_segment_seconds": 180,
+  "frequency_windows": [
+    {"start_seconds": 18000, "end_seconds": 21600, "headway_seconds": 360},
+    {"start_seconds": 21600, "end_seconds": 32400, "headway_seconds": 180},
+    {"start_seconds": 32400, "end_seconds": 54000, "headway_seconds": 240},
+    {"start_seconds": 54000, "end_seconds": 68400, "headway_seconds": 180},
+    {"start_seconds": 68400, "end_seconds": 79200, "headway_seconds": 300},
+    {"start_seconds": 79200, "end_seconds": 88200, "headway_seconds": 480}
+  ],
+  "lines": [
+    {
+      "route_id": "metro_M1",
+      "short_name": "M1",
+      "stations": [
+        {"name": "Metro Młociny", "lat": 52.2906, "lon": 20.9299},
+        {"name": "Metro Wawrzyszew", "lat": 52.2867, "lon": 20.9395},
+        {"name": "Metro Stare Bielany", "lat": 52.2819, "lon": 20.9492},
+        {"name": "Metro Słodowiec", "lat": 52.2768, "lon": 20.9607},
+        {"name": "Metro Marymont", "lat": 52.2712, "lon": 20.9718},
+        {"name": "Metro Plac Wilsona", "lat": 52.269, "lon": 20.9846},
+        {"name": "Metro Dworzec Gdański", "lat": 52.2579, "lon": 20.9946},
+        {"name": "Metro Ratusz Arsenał", "lat": 52.2446, "lon": 21.0015},
+        {"name": "Metro Świętokrzyska", "lat": 52.2351, "lon": 21.0089},
+        {"name": "Metro Centrum", "lat": 52.2298, "lon": 21.0118},
+        {"name": "Metro Politechnika", "lat": 52.2192, "lon": 21.0152},
+        {"name": "Metro Pole Mokotowskie", "lat": 52.2096, "lon": 21.0072},
+        {"name": "Metro Racławicka", "lat": 52.1989, "lon": 21.012},
+        {"name": "Metro Wierzbno", "lat": 52.1893, "lon": 21.0168},
+        {"name": "Metro Wilanowska", "lat": 52.181, "lon": 21.023},
+        {"name": "Metro Służew", "lat": 52.1732, "lon": 21.026},
+        {"name": "Metro Ursynów", "lat": 52.162, "lon": 21.0278},
+        {"name": "Metro Stokłosy", "lat": 52.156, "lon": 21.034},
+        {"name": "Metro Imielin", "lat": 52.1492, "lon": 21.0453},
+        {"name": "Metro Natolin", "lat": 52.1406, "lon": 21.057},
+        {"name": "Metro Kabaty", "lat": 52.1317, "lon": 21.0657}
+      ]
+    },
+    {
+      "route_id": "metro_M2",
+      "short_name": "M2",
+      "stations": [
+        {"name": "Metro Bemowo", "lat": 52.2405, "lon": 20.9134},
+        {"name": "Metro Ulrychów", "lat": 52.2402, "lon": 20.929},
+        {"name": "Metro Księcia Janusza", "lat": 52.2396, "lon": 20.9431},
+        {"name": "Metro Młynów", "lat": 52.2384, "lon": 20.9604},
+        {"name": "Metro Płocka", "lat": 52.2329, "lon": 20.9666},
+        {"name": "Metro Rondo Daszyńskiego", "lat": 52.2302, "lon": 20.9847},
+        {"name": "Metro Rondo ONZ", "lat": 52.233, "lon": 20.9993},
+        {"name": "Metro Świętokrzyska", "lat": 52.2351, "lon": 21.0089},
+        {"name": "Metro Nowy Świat-Uniwersytet", "lat": 52.2369, "lon": 21.0173},
+        {"name": "Metro Centrum Nauki Kopernik", "lat": 52.2395, "lon": 21.0301},
+        {"name": "Metro Stadion Narodowy", "lat": 52.2474, "lon": 21.044},
+        {"name": "Metro Dworzec Wileński", "lat": 52.2544, "lon": 21.0356},
+        {"name": "Metro Szwedzka", "lat": 52.2633, "lon": 21.044},
+        {"name": "Metro Targówek Mieszkaniowy", "lat": 52.269, "lon": 21.0512},
+        {"name": "Metro Trocka", "lat": 52.2759, "lon": 21.0553},
+        {"name": "Metro Zacisze", "lat": 52.2844, "lon": 21.064},
+        {"name": "Metro Kondratowicza", "lat": 52.2907, "lon": 21.049},
+        {"name": "Metro Bródno", "lat": 52.2931, "lon": 21.029}
+      ]
+    }
+  ]
+}
