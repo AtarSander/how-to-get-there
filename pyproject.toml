@@ -4,4 +4,17 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "loguru>=0.7.3",
+    "osmnx>=2.0.0",
+    "pandas>=2.3.0",
+    "psycopg2-binary>=2.9.10",
+    "pydantic-settings>=2.11.0",
+    "pytest>=8.4.0",
+    "sqlalchemy>=2.0.0",
+    "streamlit>=1.50.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
