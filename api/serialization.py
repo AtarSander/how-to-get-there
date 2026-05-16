@@ -6,6 +6,7 @@ from typing import Any
 from services.car_routing import CarRoute, CarRouteSegment, GeoPoint
 from services.park_and_ride import ParkAndRideRoute, ParkAndRideWalkLeg
 from services.public_transport import JourneyLeg, PublicTransportJourney
+from api.map_geometry import build_option_map
 from services.route_comparison import RouteComparison, RouteOption
 
 
@@ -25,6 +26,10 @@ def serialize_car_segment(segment: CarRouteSegment) -> dict[str, Any]:
         "road_name": segment.road_name,
         "distance_m": segment.distance_m,
         "duration_seconds": segment.duration_seconds,
+        "from_lat": segment.from_lat,
+        "from_lon": segment.from_lon,
+        "to_lat": segment.to_lat,
+        "to_lon": segment.to_lon,
     }
 
 
@@ -51,6 +56,10 @@ def serialize_journey_leg(leg: JourneyLeg) -> dict[str, Any]:
         "duration_minutes": leg.duration_minutes,
         "route_name": leg.route_name,
         "trip_headsign": leg.trip_headsign,
+        "from_lat": leg.from_lat,
+        "from_lon": leg.from_lon,
+        "to_lat": leg.to_lat,
+        "to_lon": leg.to_lon,
     }
 
 
@@ -118,7 +127,11 @@ def serialize_option_details(option: RouteOption) -> dict[str, Any] | None:
     return None
 
 
-def serialize_route_option(option: RouteOption) -> dict[str, Any]:
+def serialize_route_option(
+    option: RouteOption,
+    origin: GeoPoint,
+    destination: GeoPoint,
+) -> dict[str, Any]:
     return {
         "mode": option.mode,
         "label": option.label,
@@ -130,6 +143,7 @@ def serialize_route_option(option: RouteOption) -> dict[str, Any]:
         "transfers": option.transfers,
         "reason": option.reason,
         "details": serialize_option_details(option),
+        "map": build_option_map(option, origin, destination),
     }
 
 
@@ -139,6 +153,13 @@ def serialize_route_comparison(comparison: RouteComparison) -> dict[str, Any]:
         "origin": serialize_geo_point(comparison.origin),
         "destination": serialize_geo_point(comparison.destination),
         "departure_at": _dt(comparison.departure_at),
-        "options": [serialize_route_option(option) for option in comparison.options],
-        "best_option": serialize_route_option(best) if best is not None else None,
+        "options": [
+            serialize_route_option(option, comparison.origin, comparison.destination)
+            for option in comparison.options
+        ],
+        "best_option": (
+            serialize_route_option(best, comparison.origin, comparison.destination)
+            if best is not None
+            else None
+        ),
     }

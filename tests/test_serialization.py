@@ -26,6 +26,7 @@ def test_serialize_route_comparison_includes_best_option() -> None:
     )
 
     payload = serialize_route_comparison(comparison)
+    assert payload["options"][0]["map"]["lines"][0]["kind"] == "car"
 
     assert payload["best_option"]["mode"] == "car"
     assert payload["options"][0]["details"]["car"]["total_minutes"] == 15
