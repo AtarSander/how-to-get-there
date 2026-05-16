@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from math import ceil
 from typing import TYPE_CHECKING, Any
 
@@ -71,18 +72,42 @@ class StateTransition:
     segment: ConnectionSegment | None
 
 
-def parse_gtfs_time(value: str) -> timedelta:
+@dataclass(frozen=True)
+class JourneyCandidate:
+    estimated_arrival_seconds: int
+    boardings: int
+    destination_stop: NearbyStop
+    segments: list[ConnectionSegment]
+
+
+@dataclass(frozen=True)
+class WalkRouteTemplate:
+    duration_seconds: int
+    path_positions: tuple[tuple[float, float], ...] | None
+
+
+WalkRouteCache = dict[
+    tuple[float, float, float, float, int | None],
+    WalkRouteTemplate,
+]
+
+
+@lru_cache(maxsize=16_384)
+def gtfs_time_to_seconds(value: str) -> int:
     hours_str, minutes_str, seconds_str = value.split(":")
-    return timedelta(
-        hours=int(hours_str),
-        minutes=int(minutes_str),
-        seconds=int(seconds_str),
-    )
+    return int(hours_str) * 3600 + int(minutes_str) * 60 + int(seconds_str)
+
+
+def parse_gtfs_time(value: str) -> timedelta:
+    return timedelta(seconds=gtfs_time_to_seconds(value))
 
 
 def format_gtfs_time(value: timedelta) -> str:
-    total_seconds = int(value.total_seconds())
-    hours, remainder = divmod(total_seconds, 3600)
+    return format_gtfs_seconds(int(value.total_seconds()))
+
+
+def format_gtfs_seconds(value: int) -> str:
+    hours, remainder = divmod(value, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
@@ -98,14 +123,31 @@ def estimate_walking_seconds(
     return ceil(distance_m / speed_mps)
 
 
-def build_walk_leg(
-    from_name: str,
-    to_name: str,
+def walk_route_cache_key(
+    origin: GeoPoint,
+    destination: GeoPoint,
+    road_edges: list[RoadEdge] | None,
+) -> tuple[float, float, float, float, int | None]:
+    return (
+        origin.lat,
+        origin.lon,
+        destination.lat,
+        destination.lon,
+        id(road_edges) if road_edges is not None else None,
+    )
+
+
+def resolve_walk_route_template(
     origin: GeoPoint,
     destination: GeoPoint,
     departure_at: datetime,
     road_edges: list[RoadEdge] | None,
-) -> JourneyLeg:
+    walk_route_cache: WalkRouteCache | None,
+) -> WalkRouteTemplate:
+    key = walk_route_cache_key(origin, destination, road_edges)
+    if walk_route_cache is not None and key in walk_route_cache:
+        return walk_route_cache[key]
+
     walk_result = resolve_route(
         origin=origin,
         destination=destination,
@@ -116,19 +158,46 @@ def build_walk_leg(
     )
     assert walk_result is not None
     walk_route = walk_result.route
+    template = WalkRouteTemplate(
+        duration_seconds=walk_route.total_duration_seconds,
+        path_positions=walk_result.path_positions,
+    )
+
+    if walk_route_cache is not None:
+        walk_route_cache[key] = template
+
+    return template
+
+
+def build_walk_leg(
+    from_name: str,
+    to_name: str,
+    origin: GeoPoint,
+    destination: GeoPoint,
+    departure_at: datetime,
+    road_edges: list[RoadEdge] | None,
+    walk_route_cache: WalkRouteCache | None = None,
+) -> JourneyLeg:
+    walk_template = resolve_walk_route_template(
+        origin=origin,
+        destination=destination,
+        departure_at=departure_at,
+        road_edges=road_edges,
+        walk_route_cache=walk_route_cache,
+    )
 
     return JourneyLeg(
         mode="walk",
         from_name=from_name,
         to_name=to_name,
         departure_at=departure_at,
-        arrival_at=walk_route.arrival_at,
-        duration_minutes=walk_route.total_minutes,
+        arrival_at=departure_at + timedelta(seconds=walk_template.duration_seconds),
+        duration_minutes=ceil(walk_template.duration_seconds / 60),
         from_lat=origin.lat,
         from_lon=origin.lon,
         to_lat=destination.lat,
         to_lon=destination.lon,
-        path_positions=walk_result.path_positions,
+        path_positions=walk_template.path_positions,
     )
 
 
@@ -141,6 +210,8 @@ def build_journey_from_candidate(
     candidate: DirectConnectionCandidate,
     road_edges: list[RoadEdge] | None = None,
     engine: Engine | None = None,
+    walk_route_cache: WalkRouteCache | None = None,
+    include_geometry: bool = True,
 ) -> PublicTransportJourney | None:
     request_offset = requested_departure_at - requested_departure_at.replace(
         hour=0,
@@ -158,6 +229,7 @@ def build_journey_from_candidate(
         destination=GeoPoint(origin_stop.lat, origin_stop.lon),
         departure_at=requested_departure_at,
         road_edges=road_edges,
+        walk_route_cache=walk_route_cache,
     )
     access_walk_seconds = ceil(
         (access_leg.arrival_at - access_leg.departure_at).total_seconds()
@@ -181,6 +253,7 @@ def build_journey_from_candidate(
         destination=destination_point,
         departure_at=vehicle_arrival_at,
         road_edges=road_edges,
+        walk_route_cache=walk_route_cache,
     )
     final_arrival_at = egress_leg.arrival_at
 
@@ -206,7 +279,8 @@ def build_journey_from_candidate(
             from_shape_dist_traveled=candidate.from_shape_dist_traveled,
             to_shape_dist_traveled=candidate.to_shape_dist_traveled,
         )
-        if candidate.from_stop_sequence is not None
+        if include_geometry
+        and candidate.from_stop_sequence is not None
         and candidate.to_stop_sequence is not None
         else None
     )
@@ -241,18 +315,18 @@ def build_journey_from_candidate(
 
 
 def relax_state(
-    best_arrivals: dict[SearchState, timedelta],
+    best_arrivals: dict[SearchState, int],
     predecessors: dict[SearchState, StateTransition],
     state: SearchState,
-    arrival_time: timedelta,
+    arrival_seconds: int,
     previous_state: SearchState | None,
     segment: ConnectionSegment | None,
 ) -> bool:
     best_known = best_arrivals.get(state)
-    if best_known is not None and best_known <= arrival_time:
+    if best_known is not None and best_known <= arrival_seconds:
         return False
 
-    best_arrivals[state] = arrival_time
+    best_arrivals[state] = arrival_seconds
     predecessors[state] = StateTransition(
         previous_state=previous_state,
         segment=segment,
@@ -281,31 +355,27 @@ def reconstruct_segments(
     return segments
 
 
-def timedelta_to_seconds(value: timedelta) -> int:
-    return int(value.total_seconds())
-
-
 def process_segments_for_boarding_round(
     segments: list[ConnectionSegment],
     boardings: int,
-    best_arrivals: dict[SearchState, timedelta],
+    best_arrivals: dict[SearchState, int],
     predecessors: dict[SearchState, StateTransition],
     transfer_buffer_seconds: int,
 ) -> None:
+    transfer_buffer = transfer_buffer_seconds if boardings > 1 else 0
+
     for segment in segments:
-        departure_offset = parse_gtfs_time(segment.departure_time)
-        arrival_offset = parse_gtfs_time(segment.arrival_time)
+        departure_seconds = gtfs_time_to_seconds(segment.departure_time)
+        arrival_seconds = gtfs_time_to_seconds(segment.arrival_time)
 
         offboard_state = SearchState(
             kind="offboard",
             stop_id=segment.from_stop_id,
             boardings=boardings - 1,
         )
-        if offboard_state in best_arrivals:
-            ready_to_board = best_arrivals[offboard_state] + timedelta(
-                seconds=transfer_buffer_seconds if boardings > 1 else 0
-            )
-            if ready_to_board <= departure_offset:
+        offboard_arrival_seconds = best_arrivals.get(offboard_state)
+        if offboard_arrival_seconds is not None:
+            if offboard_arrival_seconds + transfer_buffer <= departure_seconds:
                 onboard_state = SearchState(
                     kind="onboard",
                     stop_id=segment.to_stop_id,
@@ -316,7 +386,7 @@ def process_segments_for_boarding_round(
                     best_arrivals=best_arrivals,
                     predecessors=predecessors,
                     state=onboard_state,
-                    arrival_time=arrival_offset,
+                    arrival_seconds=arrival_seconds,
                     previous_state=offboard_state,
                     segment=segment,
                 ):
@@ -328,7 +398,7 @@ def process_segments_for_boarding_round(
                             stop_id=segment.to_stop_id,
                             boardings=boardings,
                         ),
-                        arrival_time=arrival_offset,
+                        arrival_seconds=arrival_seconds,
                         previous_state=onboard_state,
                         segment=None,
                     )
@@ -339,9 +409,10 @@ def process_segments_for_boarding_round(
             boardings=boardings,
             trip_id=segment.trip_id,
         )
+        ongoing_arrival_seconds = best_arrivals.get(ongoing_ride_state)
         if (
-            ongoing_ride_state in best_arrivals
-            and best_arrivals[ongoing_ride_state] <= departure_offset
+            ongoing_arrival_seconds is not None
+            and ongoing_arrival_seconds <= departure_seconds
         ):
             onboard_state = SearchState(
                 kind="onboard",
@@ -353,7 +424,7 @@ def process_segments_for_boarding_round(
                 best_arrivals=best_arrivals,
                 predecessors=predecessors,
                 state=onboard_state,
-                arrival_time=arrival_offset,
+                arrival_seconds=arrival_seconds,
                 previous_state=ongoing_ride_state,
                 segment=segment,
             ):
@@ -365,7 +436,7 @@ def process_segments_for_boarding_round(
                         stop_id=segment.to_stop_id,
                         boardings=boardings,
                     ),
-                    arrival_time=arrival_offset,
+                    arrival_seconds=arrival_seconds,
                     previous_state=onboard_state,
                     segment=None,
                 )
@@ -422,6 +493,8 @@ def build_journey_from_segments(
     segments: list[ConnectionSegment],
     road_edges: list[RoadEdge] | None = None,
     engine: Engine | None = None,
+    walk_route_cache: WalkRouteCache | None = None,
+    include_geometry: bool = True,
 ) -> PublicTransportJourney | None:
     if not segments:
         return None
@@ -440,17 +513,17 @@ def build_journey_from_segments(
         destination=GeoPoint(origin_stop.lat, origin_stop.lon),
         departure_at=requested_departure_at,
         road_edges=road_edges,
+        walk_route_cache=walk_route_cache,
     )
     access_walk_seconds = ceil(
         (access_leg.arrival_at - access_leg.departure_at).total_seconds()
     )
-    first_departure_offset = parse_gtfs_time(ride_segments[0].departure_time)
+    first_departure_seconds = gtfs_time_to_seconds(ride_segments[0].departure_time)
 
     if (
-        requested_departure_at
-        - service_day_start
-        + timedelta(seconds=access_walk_seconds)
-        > first_departure_offset
+        int((requested_departure_at - service_day_start).total_seconds())
+        + access_walk_seconds
+        > first_departure_seconds
     ):
         return None
 
@@ -459,9 +532,11 @@ def build_journey_from_segments(
     in_vehicle_minutes = 0
 
     for ride in ride_segments:
-        departure_at = service_day_start + parse_gtfs_time(ride.departure_time)
-        arrival_at = service_day_start + parse_gtfs_time(ride.arrival_time)
-        duration_minutes = ceil((arrival_at - departure_at).total_seconds() / 60)
+        departure_seconds = gtfs_time_to_seconds(ride.departure_time)
+        arrival_seconds = gtfs_time_to_seconds(ride.arrival_time)
+        departure_at = service_day_start + timedelta(seconds=departure_seconds)
+        arrival_at = service_day_start + timedelta(seconds=arrival_seconds)
+        duration_minutes = ceil((arrival_seconds - departure_seconds) / 60)
         in_vehicle_minutes += duration_minutes
 
         legs.append(
@@ -478,23 +553,27 @@ def build_journey_from_segments(
                 from_lon=ride.from_lon,
                 to_lat=ride.to_lat,
                 to_lon=ride.to_lon,
-                path_positions=resolve_ride_path_positions(
-                    engine=engine,
-                    trip_id=ride.trip_id,
-                    from_stop_sequence=ride.from_stop_sequence,
-                    to_stop_sequence=ride.to_stop_sequence,
-                    from_lat=ride.from_lat,
-                    from_lon=ride.from_lon,
-                    to_lat=ride.to_lat,
-                    to_lon=ride.to_lon,
-                    from_shape_dist_traveled=ride.from_shape_dist_traveled,
-                    to_shape_dist_traveled=ride.to_shape_dist_traveled,
+                path_positions=(
+                    resolve_ride_path_positions(
+                        engine=engine,
+                        trip_id=ride.trip_id,
+                        from_stop_sequence=ride.from_stop_sequence,
+                        to_stop_sequence=ride.to_stop_sequence,
+                        from_lat=ride.from_lat,
+                        from_lon=ride.from_lon,
+                        to_lat=ride.to_lat,
+                        to_lon=ride.to_lon,
+                        from_shape_dist_traveled=ride.from_shape_dist_traveled,
+                        to_shape_dist_traveled=ride.to_shape_dist_traveled,
+                    )
+                    if include_geometry
+                    else None
                 ),
             )
         )
 
-    final_vehicle_arrival_at = service_day_start + parse_gtfs_time(
-        ride_segments[-1].arrival_time
+    final_vehicle_arrival_at = service_day_start + timedelta(
+        seconds=gtfs_time_to_seconds(ride_segments[-1].arrival_time)
     )
     egress_leg = build_walk_leg(
         from_name=destination_stop.stop_name,
@@ -503,6 +582,7 @@ def build_journey_from_segments(
         destination=destination_point,
         departure_at=final_vehicle_arrival_at,
         road_edges=road_edges,
+        walk_route_cache=walk_route_cache,
     )
     final_arrival_at = egress_leg.arrival_at
     legs.append(egress_leg)
@@ -523,6 +603,23 @@ def build_journey_from_segments(
     )
 
 
+def journey_sort_key(
+    journey: PublicTransportJourney,
+) -> tuple[datetime, int, int]:
+    return (
+        journey.arrival_at,
+        journey.transfers,
+        journey.total_minutes,
+    )
+
+
+def journey_arrival_seconds(
+    journey: PublicTransportJourney,
+    service_day_start: datetime,
+) -> int:
+    return int((journey.arrival_at - service_day_start).total_seconds())
+
+
 def find_public_transport_connections(
     engine: Engine,
     origin_lat: float,
@@ -538,6 +635,7 @@ def find_public_transport_connections(
     transfer_buffer_seconds: int | None = None,
     limit: int | None = None,
     road_edges: list[RoadEdge] | None = None,
+    include_geometry: bool = True,
 ) -> list[PublicTransportJourney]:
     max_stop_distance_m = (
         max_stop_distance_m or settings.public_transport_max_stop_distance_m
@@ -576,24 +674,26 @@ def find_public_transport_connections(
         return []
 
     origin_stop_by_id = {stop.stop_id: stop for stop in origin_stops}
-    destination_stop_by_id = {stop.stop_id: stop for stop in destination_stops}
     service_day_start = requested_departure_at.replace(
         hour=0,
         minute=0,
         second=0,
         microsecond=0,
     )
-    request_offset = requested_departure_at - service_day_start
-    origin_ready_offsets = {
-        stop.stop_id: request_offset
-        + timedelta(seconds=estimate_walking_seconds(stop.distance_m))
+    request_offset_seconds = int(
+        (requested_departure_at - service_day_start).total_seconds()
+    )
+    origin_ready_seconds = {
+        stop.stop_id: (
+            request_offset_seconds + estimate_walking_seconds(stop.distance_m)
+        )
         for stop in origin_stops
     }
-    earliest_origin_ready = min(origin_ready_offsets.values())
+    earliest_origin_ready_seconds = min(origin_ready_seconds.values())
 
     max_boardings = max_transfers + 1
-    search_until_offset = earliest_origin_ready + timedelta(hours=search_window_hours)
-    best_arrivals: dict[SearchState, timedelta] = {}
+    search_until_seconds = earliest_origin_ready_seconds + search_window_hours * 3600
+    best_arrivals: dict[SearchState, int] = {}
     predecessors: dict[SearchState, StateTransition] = {}
 
     for origin_stop in origin_stops:
@@ -605,18 +705,18 @@ def find_public_transport_connections(
                 stop_id=origin_stop.stop_id,
                 boardings=0,
             ),
-            arrival_time=origin_ready_offsets[origin_stop.stop_id],
+            arrival_seconds=origin_ready_seconds[origin_stop.stop_id],
             previous_state=None,
             segment=None,
         )
 
     for boardings in range(1, max_boardings + 1):
         ready_seconds_by_stop_id = {
-            state.stop_id: timedelta_to_seconds(arrival_time)
-            for state, arrival_time in best_arrivals.items()
+            state.stop_id: arrival_seconds
+            for state, arrival_seconds in best_arrivals.items()
             if state.kind == "offboard"
             and state.boardings == boardings - 1
-            and arrival_time <= search_until_offset
+            and arrival_seconds <= search_until_seconds
         }
         if not ready_seconds_by_stop_id:
             break
@@ -625,7 +725,7 @@ def find_public_transport_connections(
             engine,
             service_ids=service_ids,
             ready_seconds_by_stop_id=ready_seconds_by_stop_id,
-            departure_time_to=format_gtfs_time(search_until_offset),
+            departure_time_to=format_gtfs_seconds(search_until_seconds),
             limit=segment_limit,
         )
         if not segments:
@@ -639,8 +739,7 @@ def find_public_transport_connections(
             transfer_buffer_seconds=transfer_buffer_seconds,
         )
 
-    candidate_journeys: list[PublicTransportJourney] = []
-    seen_signatures: set[tuple] = set()
+    candidates: list[JourneyCandidate] = []
 
     for destination_stop in destination_stops:
         for boardings in range(1, max_boardings + 1):
@@ -660,41 +759,101 @@ def find_public_transport_connections(
             if first_origin_stop_id not in origin_stop_by_id:
                 continue
 
-            journey = build_journey_from_segments(
-                requested_departure_at=requested_departure_at,
-                origin_point=GeoPoint(origin_lat, origin_lon),
-                destination_point=GeoPoint(destination_lat, destination_lon),
-                origin_stop=origin_stop_by_id[first_origin_stop_id],
-                destination_stop=destination_stop,
-                segments=ride_segments,
-                road_edges=road_edges,
-                engine=engine,
-            )
-            if journey is None:
-                continue
-
-            signature = tuple(
-                (
-                    leg.mode,
-                    leg.from_name,
-                    leg.to_name,
-                    leg.departure_at,
-                    leg.arrival_at,
-                    leg.route_name,
+            estimated_arrival_seconds = best_arrivals[
+                final_state
+            ] + estimate_walking_seconds(destination_stop.distance_m)
+            candidates.append(
+                JourneyCandidate(
+                    estimated_arrival_seconds=estimated_arrival_seconds,
+                    boardings=boardings,
+                    destination_stop=destination_stop,
+                    segments=ride_segments,
                 )
-                for leg in journey.legs
             )
-            if signature in seen_signatures:
-                continue
 
-            seen_signatures.add(signature)
-            candidate_journeys.append(journey)
-
-    candidate_journeys.sort(
-        key=lambda journey: (
-            journey.arrival_at,
-            journey.transfers,
-            journey.total_minutes,
+    candidates.sort(
+        key=lambda candidate: (
+            candidate.estimated_arrival_seconds,
+            candidate.boardings,
         )
     )
-    return candidate_journeys[:limit]
+
+    candidate_journeys: list[tuple[JourneyCandidate, PublicTransportJourney]] = []
+    seen_signatures: set[tuple] = set()
+    walk_route_cache: WalkRouteCache = {}
+
+    for candidate in candidates:
+        # Straight-line egress walking is a lower bound, so later candidates
+        # cannot improve the current top set after their estimate passes it.
+        if len(candidate_journeys) >= limit:
+            current_best = sorted(
+                candidate_journeys,
+                key=lambda item: journey_sort_key(item[1]),
+            )[:limit]
+            cutoff_seconds = journey_arrival_seconds(
+                current_best[-1][1],
+                service_day_start,
+            )
+            if candidate.estimated_arrival_seconds > cutoff_seconds:
+                break
+
+        first_origin_stop_id = candidate.segments[0].from_stop_id
+
+        journey = build_journey_from_segments(
+            requested_departure_at=requested_departure_at,
+            origin_point=GeoPoint(origin_lat, origin_lon),
+            destination_point=GeoPoint(destination_lat, destination_lon),
+            origin_stop=origin_stop_by_id[first_origin_stop_id],
+            destination_stop=candidate.destination_stop,
+            segments=candidate.segments,
+            road_edges=road_edges,
+            engine=engine,
+            walk_route_cache=walk_route_cache,
+            include_geometry=False,
+        )
+        if journey is None:
+            continue
+
+        signature = tuple(
+            (
+                leg.mode,
+                leg.from_name,
+                leg.to_name,
+                leg.departure_at,
+                leg.arrival_at,
+                leg.route_name,
+            )
+            for leg in journey.legs
+        )
+        if signature in seen_signatures:
+            continue
+
+        seen_signatures.add(signature)
+        candidate_journeys.append((candidate, journey))
+
+    candidate_journeys.sort(key=lambda item: journey_sort_key(item[1]))
+    selected = candidate_journeys[:limit]
+
+    if not include_geometry:
+        return [journey for _candidate, journey in selected]
+
+    final_journeys: list[PublicTransportJourney] = []
+    for candidate, _journey in selected:
+        first_origin_stop_id = candidate.segments[0].from_stop_id
+        journey_with_geometry = build_journey_from_segments(
+            requested_departure_at=requested_departure_at,
+            origin_point=GeoPoint(origin_lat, origin_lon),
+            destination_point=GeoPoint(destination_lat, destination_lon),
+            origin_stop=origin_stop_by_id[first_origin_stop_id],
+            destination_stop=candidate.destination_stop,
+            segments=candidate.segments,
+            road_edges=road_edges,
+            engine=engine,
+            walk_route_cache=walk_route_cache,
+            include_geometry=True,
+        )
+        if journey_with_geometry is not None:
+            final_journeys.append(journey_with_geometry)
+
+    final_journeys.sort(key=journey_sort_key)
+    return final_journeys

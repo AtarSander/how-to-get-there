@@ -66,6 +66,12 @@ class ParkAndRideRoute:
         return self.public_transport_journey.legs
 
 
+@dataclass(frozen=True)
+class ParkAndRideCarCandidate:
+    parking: ParkAndRideLocation
+    car_route: CarRoute
+
+
 def build_walk_to_metro_leg(
     parking: ParkAndRideLocation,
     departure_at: datetime,
@@ -108,6 +114,49 @@ def rank_candidate_parkings(
     )[:limit]
 
 
+def find_car_candidate_for_parking(
+    parking: ParkAndRideLocation,
+    origin: GeoPoint,
+    departure_at: datetime,
+    road_edges: list[RoadEdge] | None,
+    traffic_profile: TrafficProfile | None,
+) -> ParkAndRideCarCandidate | None:
+    parking_point = GeoPoint(parking.lat, parking.lon)
+    car_route = (
+        find_car_route(
+            edges=road_edges,
+            origin=origin,
+            destination=parking_point,
+            departure_at=departure_at,
+            traffic_profile=traffic_profile,
+        )
+        if road_edges
+        else estimate_direct_car_route(
+            origin=origin,
+            destination=parking_point,
+            departure_at=departure_at,
+            traffic_profile=traffic_profile,
+        )
+    )
+
+    if car_route is None:
+        return None
+
+    return ParkAndRideCarCandidate(
+        parking=parking,
+        car_route=car_route,
+    )
+
+
+def park_and_ride_car_candidate_sort_key(
+    candidate: ParkAndRideCarCandidate,
+) -> tuple[int, float]:
+    return (
+        candidate.car_route.total_duration_seconds,
+        candidate.car_route.total_distance_m,
+    )
+
+
 def find_park_and_ride_routes(
     engine: Engine,
     origin_lat: float,
@@ -124,71 +173,73 @@ def find_park_and_ride_routes(
 ) -> list[ParkAndRideRoute]:
     origin = GeoPoint(origin_lat, origin_lon)
     destination = GeoPoint(destination_lat, destination_lon)
-    candidate_limit = candidate_limit or settings.park_and_ride_candidate_limit
     limit = limit or settings.park_and_ride_result_limit
     parkings = parkings or PARK_AND_RIDE_LOCATIONS
 
+    candidate_limit = candidate_limit if candidate_limit is not None else len(parkings)
     candidates = rank_candidate_parkings(origin, parkings, candidate_limit)
-    routes: list[ParkAndRideRoute] = []
+    car_candidates: list[ParkAndRideCarCandidate] = []
 
     for parking in candidates:
-        parking_point = GeoPoint(parking.lat, parking.lon)
-        car_route = (
-            find_car_route(
-                edges=road_edges,
-                origin=origin,
-                destination=parking_point,
-                departure_at=departure_at,
-                traffic_profile=traffic_profile,
-            )
-            if road_edges
-            else estimate_direct_car_route(
-                origin=origin,
-                destination=parking_point,
-                departure_at=departure_at,
-                traffic_profile=traffic_profile,
-            )
-        )
-
-        if car_route is None:
-            continue
-
-        walk_to_metro = build_walk_to_metro_leg(
-            parking,
-            car_route.arrival_at,
+        car_candidate = find_car_candidate_for_parking(
+            parking=parking,
+            origin=origin,
+            departure_at=departure_at,
             road_edges=road_edges,
+            traffic_profile=traffic_profile,
         )
-        metro_departure_at = walk_to_metro.arrival_at + timedelta(
-            seconds=settings.park_and_ride_min_transfer_seconds
-        )
-        public_transport_journeys = public_transport_finder(
-            engine,
-            parking.metro_lat,
-            parking.metro_lon,
-            destination.lat,
-            destination.lon,
-            metro_departure_at,
-            road_edges=road_edges,
-        )
+        if car_candidate is not None:
+            car_candidates.append(car_candidate)
 
-        for public_transport_journey in public_transport_journeys:
-            arrival_at = public_transport_journey.arrival_at
-            total_seconds = ceil((arrival_at - departure_at).total_seconds())
+    if not car_candidates:
+        return []
 
-            routes.append(
-                ParkAndRideRoute(
-                    parking=parking,
-                    departure_at=departure_at,
-                    arrival_at=arrival_at,
-                    total_minutes=ceil(total_seconds / 60),
-                    total_distance_m=(
-                        car_route.total_distance_m + walk_to_metro.distance_m
-                    ),
-                    car_route=car_route,
-                    walk_to_metro=walk_to_metro,
-                    public_transport_journey=public_transport_journey,
-                )
+    best_car_candidate = min(
+        car_candidates,
+        key=park_and_ride_car_candidate_sort_key,
+    )
+    parking = best_car_candidate.parking
+    car_route = best_car_candidate.car_route
+
+    walk_to_metro = build_walk_to_metro_leg(
+        parking,
+        car_route.arrival_at,
+        road_edges=road_edges,
+    )
+    metro_departure_at = walk_to_metro.arrival_at + timedelta(
+        seconds=settings.park_and_ride_min_transfer_seconds
+    )
+    public_transport_journeys = public_transport_finder(
+        engine,
+        parking.metro_lat,
+        parking.metro_lon,
+        destination.lat,
+        destination.lon,
+        metro_departure_at,
+        limit=1,
+        road_edges=road_edges,
+        include_geometry=True,
+    )
+
+    routes: list[ParkAndRideRoute] = []
+    for public_transport_journey in public_transport_journeys:
+        arrival_at = public_transport_journey.arrival_at
+        total_seconds = ceil((arrival_at - departure_at).total_seconds())
+
+        routes.append(
+            ParkAndRideRoute(
+                parking=parking,
+                departure_at=departure_at,
+                arrival_at=arrival_at,
+                total_minutes=ceil(total_seconds / 60),
+                total_distance_m=(
+                    car_route.total_distance_m + walk_to_metro.distance_m
+                ),
+                car_route=car_route,
+                walk_to_metro=walk_to_metro,
+                public_transport_journey=public_transport_journey,
             )
+        )
 
     routes.sort(
         key=lambda route: (
