@@ -124,3 +124,89 @@ def test_find_park_and_ride_routes_combines_car_walk_and_public_transport() -> N
     assert routes[0].walk_to_metro.to_name == "Metro Test"
     assert routes[0].public_transport_journey.legs[0].route_name == "M1"
     assert routes[0].arrival_at > departure_at + timedelta(minutes=20)
+
+
+def test_find_park_and_ride_routes_prefers_closer_parking_before_fastest_arrival() -> None:
+    departure_at = datetime(2026, 5, 14, 8, 0, 0)
+    near_parking = ParkAndRideLocation(
+        parking_id="near",
+        name="P+R Near",
+        lat=52.001,
+        lon=21.0,
+        metro_station="Metro Near",
+        metro_line="M1",
+        metro_lat=52.001,
+        metro_lon=21.0,
+    )
+    far_parking = ParkAndRideLocation(
+        parking_id="wilanowska-like",
+        name="P+R Far",
+        lat=52.1,
+        lon=21.0,
+        metro_station="Metro Far",
+        metro_line="M1",
+        metro_lat=52.1,
+        metro_lon=21.0,
+    )
+    public_transport_origins: list[tuple[float, float]] = []
+
+    def fake_public_transport_finder(
+        engine,
+        origin_lat,
+        origin_lon,
+        destination_lat,
+        destination_lon,
+        requested_departure_at,
+        **kwargs,
+    ):
+        public_transport_origins.append((origin_lat, origin_lon))
+        is_far_parking = origin_lat == far_parking.metro_lat
+        duration_minutes = 1 if is_far_parking else 60
+        to_name = "Destination from Far" if is_far_parking else "Destination from Near"
+
+        return [
+            PublicTransportJourney(
+                departure_at=requested_departure_at,
+                arrival_at=requested_departure_at + timedelta(minutes=duration_minutes),
+                total_minutes=duration_minutes,
+                in_vehicle_minutes=duration_minutes,
+                walking_minutes=0,
+                transfers=0,
+                legs=[
+                    JourneyLeg(
+                        mode="ride",
+                        from_name="Metro",
+                        to_name=to_name,
+                        departure_at=requested_departure_at,
+                        arrival_at=(
+                            requested_departure_at
+                            + timedelta(minutes=duration_minutes)
+                        ),
+                        duration_minutes=duration_minutes,
+                        route_name="M1",
+                    )
+                ],
+            )
+        ]
+
+    routes = find_park_and_ride_routes(
+        engine=object(),
+        origin_lat=52.0,
+        origin_lon=21.0,
+        destination_lat=52.2,
+        destination_lon=21.0,
+        departure_at=departure_at,
+        parkings=[near_parking, far_parking],
+        candidate_limit=2,
+        limit=1,
+        public_transport_finder=fake_public_transport_finder,
+    )
+
+    assert len(routes) == 1
+    assert routes[0].parking == near_parking
+    assert public_transport_origins == [
+        (near_parking.metro_lat, near_parking.metro_lon)
+    ]
+    assert routes[0].public_transport_journey.legs[0].to_name == (
+        "Destination from Near"
+    )
