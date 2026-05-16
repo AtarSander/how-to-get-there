@@ -23,13 +23,22 @@ import {
   Typography,
 } from "@mui/material";
 import { compareRoutes } from "./api";
+import { useLanguage } from "./language/LanguageContext";
+import {
+  getOptionDisplayLabel,
+  getOptionReason,
+  translateLegPlaceName,
+} from "./language/routeLabels";
+import { SUPPORTED_LOCALES } from "./language/translations";
 import RouteMap from "./RouteMap";
 
+const WARSAW_PRESET_KEYS = ["centrum", "wola", "praga", "mokotow"];
+
 const WARSAW_PRESETS = {
-  centrum: { lat: 52.2297, lon: 21.0122, label: "Centrum" },
-  wola: { lat: 52.2309, lon: 20.9862, label: "Wola" },
-  praga: { lat: 52.2551, lon: 21.0354, label: "Praga Północ" },
-  mokotow: { lat: 52.1934, lon: 21.0346, label: "Mokotów" },
+  centrum: { lat: 52.2297, lon: 21.0122 },
+  wola: { lat: 52.2309, lon: 20.9862 },
+  praga: { lat: 52.2551, lon: 21.0354 },
+  mokotow: { lat: 52.1934, lon: 21.0346 },
 };
 
 const MODE_ICONS = {
@@ -44,9 +53,10 @@ const MODE_COLORS = {
   park_and_ride: "primary",
 };
 
-function formatTime(iso) {
+function formatTime(iso, locale) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("pl-PL", {
+  const tag = locale === "en" ? "en-GB" : "pl-PL";
+  return new Date(iso).toLocaleTimeString(tag, {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -54,7 +64,9 @@ function formatTime(iso) {
 
 function formatDistance(meters) {
   if (meters === null || meters === undefined) return "—";
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
   return `${Math.round(meters)} m`;
 }
 
@@ -63,10 +75,33 @@ function getPublicTransportLegs(option) {
   return details?.legs ?? null;
 }
 
+function LanguageSwitcher() {
+  const { locale, setLocale, t } = useLanguage();
+
+  return (
+    <ToggleButtonGroup
+      exclusive
+      size="small"
+      value={locale}
+      onChange={(_event, value) => value && setLocale(value)}
+      aria-label="Language"
+    >
+      {SUPPORTED_LOCALES.map((code) => (
+        <ToggleButton key={code} value={code}>
+          {t(`locale.${code}`)}
+        </ToggleButton>
+      ))}
+    </ToggleButtonGroup>
+  );
+}
+
 function OptionCard({ option, highlighted, selected, onSelect }) {
+  const { locale, t } = useLanguage();
   const Icon = MODE_ICONS[option.mode] ?? DirectionsTransitIcon;
   const color = MODE_COLORS[option.mode] ?? "default";
   const legs = getPublicTransportLegs(option);
+  const label = getOptionDisplayLabel(option, t);
+  const reason = getOptionReason(option, t);
 
   return (
     <Card
@@ -92,10 +127,15 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <Icon color={color} fontSize="small" />
             <Typography variant="subtitle1" fontWeight={600}>
-              {option.label}
+              {label}
             </Typography>
             {highlighted && (
-              <Chip label="Najszybsza" size="small" color="primary" variant="outlined" />
+              <Chip
+                label={t("option.fastest")}
+                size="small"
+                color="primary"
+                variant="outlined"
+              />
             )}
           </Stack>
 
@@ -104,25 +144,31 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
               <Grid container spacing={2}>
                 <Grid size={{ xs: 6, sm: 4 }}>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Czas
+                    {t("option.duration")}
                   </Typography>
-                  <Typography fontWeight={600}>{option.total_minutes} min</Typography>
+                  <Typography fontWeight={600}>
+                    {option.total_minutes} {t("option.minutes")}
+                  </Typography>
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4 }}>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Odjazd
+                    {t("option.departure")}
                   </Typography>
-                  <Typography fontWeight={600}>{formatTime(option.departure_at)}</Typography>
+                  <Typography fontWeight={600}>
+                    {formatTime(option.departure_at, locale)}
+                  </Typography>
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4 }}>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Przyjazd
+                    {t("option.arrival")}
                   </Typography>
-                  <Typography fontWeight={600}>{formatTime(option.arrival_at)}</Typography>
+                  <Typography fontWeight={600}>
+                    {formatTime(option.arrival_at, locale)}
+                  </Typography>
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4 }}>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Dystans
+                    {t("option.distance")}
                   </Typography>
                   <Typography fontWeight={600}>
                     {formatDistance(option.total_distance_m)}
@@ -130,7 +176,7 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
                 </Grid>
                 <Grid size={{ xs: 6, sm: 4 }}>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Przesiadki
+                    {t("option.transfers")}
                   </Typography>
                   <Typography fontWeight={600}>{option.transfers ?? 0}</Typography>
                 </Grid>
@@ -140,7 +186,8 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
                 <Box component="ol" sx={{ mt: 2, mb: 0, pl: 2.5, color: "text.secondary" }}>
                   {legs.map((leg, index) => (
                     <Typography component="li" variant="body2" key={`${leg.from_name}-${index}`}>
-                      {leg.from_name} → {leg.to_name}
+                      {translateLegPlaceName(leg.from_name, t)} →{" "}
+                      {translateLegPlaceName(leg.to_name, t)}
                       {leg.route_name ? ` (${leg.route_name})` : ""}
                     </Typography>
                   ))}
@@ -149,7 +196,7 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
             </>
           ) : (
             <Typography variant="body2" color="text.secondary">
-              {option.reason}
+              {reason}
             </Typography>
           )}
         </CardContent>
@@ -159,12 +206,14 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
 }
 
 function PresetChips({ target, onSelect }) {
+  const { t } = useLanguage();
+
   return (
     <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 1 }}>
-      {Object.entries(WARSAW_PRESETS).map(([key, preset]) => (
+      {WARSAW_PRESET_KEYS.map((key) => (
         <Chip
           key={`${target}-${key}`}
-          label={preset.label}
+          label={t(`presets.${key}`)}
           size="small"
           variant="outlined"
           onClick={() => onSelect(key, target)}
@@ -175,6 +224,7 @@ function PresetChips({ target, onSelect }) {
 }
 
 export default function App() {
+  const { t } = useLanguage();
   const [origin, setOrigin] = useState({ ...WARSAW_PRESETS.centrum });
   const [destination, setDestination] = useState({ ...WARSAW_PRESETS.mokotow });
   const [pickTarget, setPickTarget] = useState("origin");
@@ -220,7 +270,7 @@ export default function App() {
     } catch (submitError) {
       setResult(null);
       setError(
-        submitError instanceof Error ? submitError.message : "Unknown error.",
+        submitError instanceof Error ? submitError.message : t("form.unknownError"),
       );
     } finally {
       setLoading(false);
@@ -238,22 +288,30 @@ export default function App() {
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography
-          variant="overline"
-          color="text.secondary"
-          sx={{ fontFamily: '"IBM Plex Mono", monospace', letterSpacing: "0.12em" }}
-        >
-          Warszawa · SPDB
-        </Typography>
-        <Typography variant="h3" component="h1" sx={{ mt: 0.5 }}>
-          Jak tam dojechać?
-        </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mt: 1, maxWidth: 560 }}>
-          Kliknij mapę, aby ustawić start i cel. Porównaj samochód, komunikację miejską
-          i Park &amp; Ride.
-        </Typography>
-      </Box>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
+        <Box>
+          <Typography
+            variant="overline"
+            color="text.secondary"
+            sx={{ fontFamily: '"IBM Plex Mono", monospace', letterSpacing: "0.12em" }}
+          >
+            {t("app.overline")}
+          </Typography>
+          <Typography variant="h3" component="h1" sx={{ mt: 0.5 }}>
+            {t("app.title")}
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mt: 1, maxWidth: 560 }}>
+            {t("app.subtitle")}
+          </Typography>
+        </Box>
+        <LanguageSwitcher />
+      </Stack>
 
       <Card variant="outlined" sx={{ mb: 2.5, overflow: "hidden" }}>
         <Box sx={{ height: { xs: 320, md: 420 }, position: "relative" }}>
@@ -273,11 +331,11 @@ export default function App() {
           <Card component="form" onSubmit={handleSubmit} variant="outlined">
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Trasa
+                {t("form.route")}
               </Typography>
 
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Wybierz, co ustawiasz na mapie, i kliknij punkt.
+                {t("form.mapHint")}
               </Typography>
 
               <ToggleButtonGroup
@@ -290,25 +348,26 @@ export default function App() {
               >
                 <ToggleButton value="origin">
                   <PlaceIcon fontSize="small" sx={{ mr: 0.75 }} />
-                  Start
+                  {t("form.pickOrigin")}
                 </ToggleButton>
                 <ToggleButton value="destination">
                   <FlagIcon fontSize="small" sx={{ mr: 0.75 }} />
-                  Cel
+                  {t("form.pickDestination")}
                 </ToggleButton>
               </ToggleButtonGroup>
 
               <Stack spacing={0.5} sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary">
-                  Start: {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}
+                  {t("form.coordsOrigin")}: {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Cel: {destination.lat.toFixed(4)}, {destination.lon.toFixed(4)}
+                  {t("form.coordsDestination")}: {destination.lat.toFixed(4)},{" "}
+                  {destination.lon.toFixed(4)}
                 </Typography>
               </Stack>
 
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
-                Szybkie presety
+                {t("form.quickPresets")}
               </Typography>
               <PresetChips target="origin" onSelect={applyPreset} />
               <Box sx={{ mt: 1 }}>
@@ -318,7 +377,7 @@ export default function App() {
               <Divider sx={{ my: 2.5 }} />
 
               <TextField
-                label="Wyjazd (opcjonalnie)"
+                label={t("form.departureOptional")}
                 type="datetime-local"
                 value={departureAt}
                 onChange={(e) => setDepartureAt(e.target.value)}
@@ -341,10 +400,10 @@ export default function App() {
                 {loading ? (
                   <Stack direction="row" spacing={1} alignItems="center">
                     <CircularProgress size={20} color="inherit" />
-                    <span>Szukam tras…</span>
+                    <span>{t("form.searching")}</span>
                   </Stack>
                 ) : (
-                  "Porównaj opcje"
+                  t("form.compare")
                 )}
               </Button>
 
@@ -359,10 +418,10 @@ export default function App() {
 
         <Grid size={{ xs: 12, md: 8 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-            <Typography variant="h6">Wyniki</Typography>
+            <Typography variant="h6">{t("results.title")}</Typography>
             {result && activeMode && (
               <Chip
-                label="Pokaż wszystkie trasy"
+                label={t("results.showAllRoutes")}
                 size="small"
                 variant="outlined"
                 onClick={() => setActiveMode(null)}
@@ -371,9 +430,7 @@ export default function App() {
           </Stack>
 
           {!result && !loading && (
-            <Typography color="text.secondary">
-              Ustaw start i cel na mapie, potem uruchom porównanie.
-            </Typography>
+            <Typography color="text.secondary">{t("results.emptyHint")}</Typography>
           )}
 
           {result && (

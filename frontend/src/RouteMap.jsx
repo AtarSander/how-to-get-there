@@ -7,6 +7,7 @@ import {
   Tooltip,
   useMap,
 } from "react-leaflet";
+import { useLanguage } from "./language/LanguageContext";
 import { LINE_KIND_COLORS, MODE_LINE_COLORS } from "./mapColors";
 
 const WARSAW_CENTER = [52.2297, 21.0122];
@@ -66,6 +67,7 @@ export default function RouteMap({
   result,
   activeMode,
 }) {
+  const { t } = useLanguage();
   const fitPositions = useMemo(
     () => collectAllPositions(origin, destination, result, activeMode),
     [origin, destination, result, activeMode],
@@ -146,7 +148,7 @@ export default function RouteMap({
             weight: 2,
           }}
         >
-          <Tooltip>Start</Tooltip>
+          <Tooltip>{t("map.start")}</Tooltip>
         </CircleMarker>
       )}
 
@@ -161,7 +163,7 @@ export default function RouteMap({
             weight: 2,
           }}
         >
-          <Tooltip>Cel</Tooltip>
+          <Tooltip>{t("map.destination")}</Tooltip>
         </CircleMarker>
       )}
 
