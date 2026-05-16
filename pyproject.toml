@@ -19,3 +19,6 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "performance: synthetic route-search performance benchmarks",
+]
