@@ -55,6 +55,7 @@ def test_compare_routes_sorts_available_options_by_total_minutes() -> None:
         destination_lat,
         destination_lon,
         requested_departure_at,
+        **kwargs,
     ):
         return [make_public_transport_journey(requested_departure_at, 35)]
 
@@ -148,7 +149,7 @@ def test_compare_routes_marks_missing_public_transport_and_park_and_ride() -> No
         destination_lat=52.01,
         destination_lon=21.01,
         departure_at=departure_at,
-        public_transport_finder=lambda *args: [],
+        public_transport_finder=lambda *args, **kwargs: [],
         park_and_ride_finder=lambda **kwargs: [],
     )
 
@@ -204,7 +205,7 @@ def test_compare_routes_loads_road_edges_from_database_when_not_provided() -> No
         destination_lon=21.1,
         departure_at=departure_at,
         car_route_finder=fake_car_route_finder,
-        public_transport_finder=lambda *args: [],
+        public_transport_finder=lambda *args, **kwargs: [],
         park_and_ride_finder=lambda **kwargs: [],
         road_edges_loader=lambda engine: loaded_edges,
     )

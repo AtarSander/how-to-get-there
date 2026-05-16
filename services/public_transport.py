@@ -6,7 +6,12 @@ from math import ceil
 from typing import TYPE_CHECKING, Any
 
 from config.settings import settings
-from services.car_routing import GeoPoint
+from services.car_routing import (
+    GeoPoint,
+    RoadEdge,
+    resolve_route,
+    walking_speed_mps,
+)
 from database.queries import (
     ConnectionSegment,
     DirectConnectionCandidate,
@@ -37,6 +42,7 @@ class JourneyLeg:
     from_lon: float | None = None
     to_lat: float | None = None
     to_lon: float | None = None
+    path_positions: tuple[tuple[float, float], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -91,11 +97,48 @@ def estimate_walking_seconds(
     return ceil(distance_m / speed_mps)
 
 
+def build_walk_leg(
+    from_name: str,
+    to_name: str,
+    origin: GeoPoint,
+    destination: GeoPoint,
+    departure_at: datetime,
+    road_edges: list[RoadEdge] | None,
+) -> JourneyLeg:
+    walk_result = resolve_route(
+        origin=origin,
+        destination=destination,
+        departure_at=departure_at,
+        road_edges=road_edges,
+        speed_mps=walking_speed_mps(),
+        allow_direct_fallback=True,
+    )
+    assert walk_result is not None
+    walk_route = walk_result.route
+
+    return JourneyLeg(
+        mode="walk",
+        from_name=from_name,
+        to_name=to_name,
+        departure_at=departure_at,
+        arrival_at=walk_route.arrival_at,
+        duration_minutes=walk_route.total_minutes,
+        from_lat=origin.lat,
+        from_lon=origin.lon,
+        to_lat=destination.lat,
+        to_lon=destination.lon,
+        path_positions=walk_result.path_positions,
+    )
+
+
 def build_journey_from_candidate(
     requested_departure_at: datetime,
+    origin_point: GeoPoint,
+    destination_point: GeoPoint,
     origin_stop: NearbyStop,
     destination_stop: NearbyStop,
     candidate: DirectConnectionCandidate,
+    road_edges: list[RoadEdge] | None = None,
 ) -> PublicTransportJourney | None:
     request_offset = requested_departure_at - requested_departure_at.replace(
         hour=0,
@@ -106,8 +149,17 @@ def build_journey_from_candidate(
     departure_offset = parse_gtfs_time(candidate.departure_time)
     arrival_offset = parse_gtfs_time(candidate.arrival_time)
 
-    access_walk_seconds = estimate_walking_seconds(origin_stop.distance_m)
-    egress_walk_seconds = estimate_walking_seconds(destination_stop.distance_m)
+    access_leg = build_walk_leg(
+        from_name="origin",
+        to_name=origin_stop.stop_name,
+        origin=origin_point,
+        destination=GeoPoint(origin_stop.lat, origin_stop.lon),
+        departure_at=requested_departure_at,
+        road_edges=road_edges,
+    )
+    access_walk_seconds = ceil(
+        (access_leg.arrival_at - access_leg.departure_at).total_seconds()
+    )
 
     if request_offset + timedelta(seconds=access_walk_seconds) > departure_offset:
         return None
@@ -120,12 +172,20 @@ def build_journey_from_candidate(
     )
     vehicle_departure_at = service_day_start + departure_offset
     vehicle_arrival_at = service_day_start + arrival_offset
-    final_arrival_at = vehicle_arrival_at + timedelta(seconds=egress_walk_seconds)
+    egress_leg = build_walk_leg(
+        from_name=destination_stop.stop_name,
+        to_name="destination",
+        origin=GeoPoint(destination_stop.lat, destination_stop.lon),
+        destination=destination_point,
+        departure_at=vehicle_arrival_at,
+        road_edges=road_edges,
+    )
+    final_arrival_at = egress_leg.arrival_at
 
     in_vehicle_minutes = ceil(
         (vehicle_arrival_at - vehicle_departure_at).total_seconds() / 60
     )
-    walking_minutes = ceil((access_walk_seconds + egress_walk_seconds) / 60)
+    walking_minutes = access_leg.duration_minutes + egress_leg.duration_minutes
     total_minutes = ceil(
         (final_arrival_at - requested_departure_at).total_seconds() / 60
     )
@@ -140,15 +200,7 @@ def build_journey_from_candidate(
         walking_minutes=walking_minutes,
         transfers=0,
         legs=[
-            JourneyLeg(
-                mode="walk",
-                from_name="origin",
-                to_name=origin_stop.stop_name,
-                departure_at=requested_departure_at,
-                arrival_at=requested_departure_at
-                + timedelta(seconds=access_walk_seconds),
-                duration_minutes=ceil(access_walk_seconds / 60),
-            ),
+            access_leg,
             JourneyLeg(
                 mode="ride",
                 from_name=origin_stop.stop_name,
@@ -158,15 +210,12 @@ def build_journey_from_candidate(
                 duration_minutes=in_vehicle_minutes,
                 route_name=route_name,
                 trip_headsign=candidate.trip_headsign,
+                from_lat=origin_stop.lat,
+                from_lon=origin_stop.lon,
+                to_lat=destination_stop.lat,
+                to_lon=destination_stop.lon,
             ),
-            JourneyLeg(
-                mode="walk",
-                from_name=destination_stop.stop_name,
-                to_name="destination",
-                departure_at=vehicle_arrival_at,
-                arrival_at=final_arrival_at,
-                duration_minutes=ceil(egress_walk_seconds / 60),
-            ),
+            egress_leg,
         ],
     )
 
@@ -349,6 +398,7 @@ def build_journey_from_segments(
     origin_stop: NearbyStop,
     destination_stop: NearbyStop,
     segments: list[ConnectionSegment],
+    road_edges: list[RoadEdge] | None = None,
 ) -> PublicTransportJourney | None:
     if not segments:
         return None
@@ -360,8 +410,17 @@ def build_journey_from_segments(
         second=0,
         microsecond=0,
     )
-    access_walk_seconds = estimate_walking_seconds(origin_stop.distance_m)
-    egress_walk_seconds = estimate_walking_seconds(destination_stop.distance_m)
+    access_leg = build_walk_leg(
+        from_name="origin",
+        to_name=origin_stop.stop_name,
+        origin=origin_point,
+        destination=GeoPoint(origin_stop.lat, origin_stop.lon),
+        departure_at=requested_departure_at,
+        road_edges=road_edges,
+    )
+    access_walk_seconds = ceil(
+        (access_leg.arrival_at - access_leg.departure_at).total_seconds()
+    )
     first_departure_offset = parse_gtfs_time(ride_segments[0].departure_time)
 
     if (
@@ -372,20 +431,7 @@ def build_journey_from_segments(
     ):
         return None
 
-    legs: list[JourneyLeg] = [
-        JourneyLeg(
-            mode="walk",
-            from_name="origin",
-            to_name=origin_stop.stop_name,
-            departure_at=requested_departure_at,
-            arrival_at=requested_departure_at + timedelta(seconds=access_walk_seconds),
-            duration_minutes=ceil(access_walk_seconds / 60),
-            from_lat=origin_point.lat,
-            from_lon=origin_point.lon,
-            to_lat=origin_stop.lat,
-            to_lon=origin_stop.lon,
-        )
-    ]
+    legs: list[JourneyLeg] = [access_leg]
 
     in_vehicle_minutes = 0
 
@@ -415,24 +461,18 @@ def build_journey_from_segments(
     final_vehicle_arrival_at = service_day_start + parse_gtfs_time(
         ride_segments[-1].arrival_time
     )
-    final_arrival_at = final_vehicle_arrival_at + timedelta(seconds=egress_walk_seconds)
-
-    legs.append(
-        JourneyLeg(
-            mode="walk",
-            from_name=destination_stop.stop_name,
-            to_name="destination",
-            departure_at=final_vehicle_arrival_at,
-            arrival_at=final_arrival_at,
-            duration_minutes=ceil(egress_walk_seconds / 60),
-            from_lat=destination_stop.lat,
-            from_lon=destination_stop.lon,
-            to_lat=destination_point.lat,
-            to_lon=destination_point.lon,
-        )
+    egress_leg = build_walk_leg(
+        from_name=destination_stop.stop_name,
+        to_name="destination",
+        origin=GeoPoint(destination_stop.lat, destination_stop.lon),
+        destination=destination_point,
+        departure_at=final_vehicle_arrival_at,
+        road_edges=road_edges,
     )
+    final_arrival_at = egress_leg.arrival_at
+    legs.append(egress_leg)
 
-    walking_minutes = ceil((access_walk_seconds + egress_walk_seconds) / 60)
+    walking_minutes = access_leg.duration_minutes + egress_leg.duration_minutes
     total_minutes = ceil(
         (final_arrival_at - requested_departure_at).total_seconds() / 60
     )
@@ -462,6 +502,7 @@ def find_public_transport_connections(
     segment_limit: int | None = None,
     transfer_buffer_seconds: int | None = None,
     limit: int | None = None,
+    road_edges: list[RoadEdge] | None = None,
 ) -> list[PublicTransportJourney]:
     max_stop_distance_m = (
         max_stop_distance_m or settings.public_transport_max_stop_distance_m
@@ -591,6 +632,7 @@ def find_public_transport_connections(
                 origin_stop=origin_stop_by_id[first_origin_stop_id],
                 destination_stop=destination_stop,
                 segments=ride_segments,
+                road_edges=road_edges,
             )
             if journey is None:
                 continue

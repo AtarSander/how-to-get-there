@@ -60,6 +60,11 @@ def serialize_journey_leg(leg: JourneyLeg) -> dict[str, Any]:
         "from_lon": leg.from_lon,
         "to_lat": leg.to_lat,
         "to_lon": leg.to_lon,
+        "path_positions": (
+            [[lat, lon] for lat, lon in leg.path_positions]
+            if leg.path_positions
+            else None
+        ),
     }
 
 
@@ -86,6 +91,11 @@ def serialize_walk_leg(leg: ParkAndRideWalkLeg) -> dict[str, Any]:
         "distance_m": leg.distance_m,
         "duration_seconds": leg.duration_seconds,
         "duration_minutes": leg.duration_minutes,
+        "path_positions": (
+            [[lat, lon] for lat, lon in leg.path_positions]
+            if leg.path_positions
+            else None
+        ),
     }
 
 

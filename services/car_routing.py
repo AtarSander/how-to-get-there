@@ -66,6 +66,12 @@ class CarRoute:
 
 
 @dataclass(frozen=True)
+class RouteGeometry:
+    route: CarRoute
+    path_positions: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
 class CandidateMove:
     edge: RoadEdge
     from_node: str
@@ -88,7 +94,17 @@ def haversine_distance_m(first: GeoPoint, second: GeoPoint) -> float:
     return 2 * settings.earth_radius_m * asin(sqrt(value))
 
 
-def edge_base_duration_seconds(edge: RoadEdge) -> float:
+def walking_speed_mps() -> float:
+    return settings.public_transport_walking_speed_mps
+
+
+def edge_base_duration_seconds(
+    edge: RoadEdge,
+    speed_mps: float | None = None,
+) -> float:
+    if speed_mps is not None:
+        return edge.length_m / speed_mps
+
     speed_kmh = edge.max_speed_kmh or settings.car_default_speed_kmh
     speed_mps = speed_kmh * 1000 / 3600
     return edge.length_m / speed_mps
@@ -98,7 +114,11 @@ def edge_duration_seconds(
     edge: RoadEdge,
     departure_at: datetime,
     traffic_profile: TrafficProfile | None = None,
+    speed_mps: float | None = None,
 ) -> int:
+    if speed_mps is not None:
+        return ceil(edge_base_duration_seconds(edge, speed_mps=speed_mps))
+
     multiplier = (
         traffic_profile.multiplier_at(departure_at)
         if traffic_profile is not None
@@ -113,12 +133,17 @@ def estimate_direct_car_route(
     destination: GeoPoint,
     departure_at: datetime,
     traffic_profile: TrafficProfile | None = None,
+    speed_mps: float | None = None,
 ) -> CarRoute:
     distance_m = haversine_distance_m(origin, destination)
-    speed_mps = settings.car_default_speed_kmh * 1000 / 3600
-    duration_seconds = ceil(distance_m / speed_mps)
+    effective_speed_mps = (
+        speed_mps
+        if speed_mps is not None
+        else settings.car_default_speed_kmh * 1000 / 3600
+    )
+    duration_seconds = ceil(distance_m / effective_speed_mps)
 
-    if traffic_profile is not None:
+    if traffic_profile is not None and speed_mps is None:
         duration_seconds = ceil(
             duration_seconds * traffic_profile.multiplier_at(departure_at)
         )
@@ -206,6 +231,7 @@ def find_car_route(
     destination: GeoPoint,
     departure_at: datetime,
     traffic_profile: TrafficProfile | None = None,
+    speed_mps: float | None = None,
 ) -> CarRoute | None:
     if not edges:
         return None
@@ -216,9 +242,12 @@ def find_car_route(
 
     if origin_node == destination_node:
         direct_distance_m = haversine_distance_m(origin, destination)
-        duration_seconds = ceil(
-            direct_distance_m / (settings.car_default_speed_kmh * 1000 / 3600)
-        )
+        if speed_mps is not None:
+            duration_seconds = ceil(direct_distance_m / speed_mps)
+        else:
+            duration_seconds = ceil(
+                direct_distance_m / (settings.car_default_speed_kmh * 1000 / 3600)
+            )
 
         return CarRoute(
             departure_at=departure_at,
@@ -252,6 +281,7 @@ def find_car_route(
                 move.edge,
                 edge_departure_at,
                 traffic_profile,
+                speed_mps=speed_mps,
             )
             candidate_duration_seconds = (
                 current_duration_seconds + move_duration_seconds
@@ -279,6 +309,7 @@ def find_car_route(
             move.edge,
             departure_at + timedelta(seconds=elapsed_seconds),
             traffic_profile,
+            speed_mps=speed_mps,
         )
         elapsed_seconds += duration_seconds
         segments.append(
@@ -299,6 +330,9 @@ def find_car_route(
     network_distance_m = sum(segment.distance_m for segment in segments)
     total_distance_m = access_distance_m + network_distance_m + egress_distance_m
     total_duration_seconds = best_duration_by_node[destination_node]
+    if speed_mps is not None:
+        total_duration_seconds += ceil(access_distance_m / speed_mps)
+        total_duration_seconds += ceil(egress_distance_m / speed_mps)
 
     return CarRoute(
         departure_at=departure_at,
@@ -308,4 +342,75 @@ def find_car_route(
         access_distance_m=access_distance_m,
         egress_distance_m=egress_distance_m,
         segments=segments,
+    )
+
+
+def path_positions_from_route(
+    origin: GeoPoint,
+    destination: GeoPoint,
+    route: CarRoute,
+) -> tuple[tuple[float, float], ...]:
+    if not route.segments:
+        return (
+            (origin.lat, origin.lon),
+            (destination.lat, destination.lon),
+        )
+
+    positions: list[tuple[float, float]] = [(origin.lat, origin.lon)]
+
+    for segment in route.segments:
+        from_point = (segment.from_lat, segment.from_lon)
+        to_point = (segment.to_lat, segment.to_lon)
+        if positions[-1] != from_point:
+            positions.append(from_point)
+        if positions[-1] != to_point:
+            positions.append(to_point)
+
+    if positions[-1] != (destination.lat, destination.lon):
+        positions.append((destination.lat, destination.lon))
+
+    return tuple(positions)
+
+
+def resolve_route(
+    origin: GeoPoint,
+    destination: GeoPoint,
+    departure_at: datetime,
+    road_edges: list[RoadEdge] | None,
+    *,
+    speed_mps: float | None = None,
+    traffic_profile: TrafficProfile | None = None,
+    allow_direct_fallback: bool = True,
+) -> RouteGeometry | None:
+    if road_edges:
+        routed = find_car_route(
+            edges=road_edges,
+            origin=origin,
+            destination=destination,
+            departure_at=departure_at,
+            traffic_profile=traffic_profile,
+            speed_mps=speed_mps,
+        )
+        if routed is not None:
+            return RouteGeometry(
+                route=routed,
+                path_positions=path_positions_from_route(
+                    origin, destination, routed
+                ),
+            )
+        if not allow_direct_fallback:
+            return None
+    elif not allow_direct_fallback:
+        return None
+
+    direct = estimate_direct_car_route(
+        origin=origin,
+        destination=destination,
+        departure_at=departure_at,
+        traffic_profile=traffic_profile,
+        speed_mps=speed_mps,
+    )
+    return RouteGeometry(
+        route=direct,
+        path_positions=path_positions_from_route(origin, destination, direct),
     )

@@ -27,8 +27,10 @@ def test_build_journey_skips_unreachable_departure() -> None:
 
     journey = build_journey_from_candidate(
         requested_departure_at=requested_departure,
-        origin_stop=NearbyStop("A", "Start", 0.0, 0.0, 900.0),
-        destination_stop=NearbyStop("B", "End", 0.0, 0.0, 50.0),
+        origin_point=GeoPoint(52.0, 21.0),
+        destination_point=GeoPoint(52.01, 21.01),
+        origin_stop=NearbyStop("A", "Start", 52.008, 21.0, 900.0),
+        destination_stop=NearbyStop("B", "End", 52.01, 21.01, 50.0),
         candidate=DirectConnectionCandidate(
             trip_id="trip-1",
             route_id="route-1",
@@ -132,10 +134,10 @@ def test_find_public_transport_connections_supports_transfer_paths(
 
     mocked_fetch_nearest_stops.side_effect = [
         [
-            NearbyStop("A", "Metro Politechnika", 0.0, 0.0, 120.0),
+            NearbyStop("A", "Metro Politechnika", 52.001, 21.0, 120.0),
         ],
         [
-            NearbyStop("D", "Ratusz Arsenal", 0.0, 0.0, 180.0),
+            NearbyStop("D", "Ratusz Arsenal", 52.1, 21.1, 180.0),
         ],
     ]
     mocked_fetch_active_service_ids.return_value = {"weekday"}

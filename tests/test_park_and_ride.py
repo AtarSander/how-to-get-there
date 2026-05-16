@@ -81,6 +81,7 @@ def test_find_park_and_ride_routes_combines_car_walk_and_public_transport() -> N
         destination_lat,
         destination_lon,
         requested_departure_at,
+        **kwargs,
     ):
         return [
             PublicTransportJourney(

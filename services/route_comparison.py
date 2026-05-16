@@ -237,6 +237,7 @@ def compare_routes(
         destination_lat,
         destination_lon,
         departure_at,
+        road_edges=resolved_road_edges,
     )
     if public_transport_journeys:
         options.append(

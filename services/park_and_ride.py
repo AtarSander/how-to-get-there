@@ -15,11 +15,12 @@ from services.car_routing import (
     estimate_direct_car_route,
     find_car_route,
     haversine_distance_m,
+    resolve_route,
+    walking_speed_mps,
 )
 from services.public_transport import (
     JourneyLeg,
     PublicTransportJourney,
-    estimate_walking_seconds,
     find_public_transport_connections,
 )
 
@@ -42,6 +43,7 @@ class ParkAndRideWalkLeg:
     arrival_at: datetime
     distance_m: float
     duration_seconds: int
+    path_positions: tuple[tuple[float, float], ...] | None = None
 
     @property
     def duration_minutes(self) -> int:
@@ -67,19 +69,28 @@ class ParkAndRideRoute:
 def build_walk_to_metro_leg(
     parking: ParkAndRideLocation,
     departure_at: datetime,
+    road_edges: list[RoadEdge] | None = None,
 ) -> ParkAndRideWalkLeg:
     parking_point = GeoPoint(parking.lat, parking.lon)
     metro_point = GeoPoint(parking.metro_lat, parking.metro_lon)
-    distance_m = haversine_distance_m(parking_point, metro_point)
-    duration_seconds = estimate_walking_seconds(distance_m)
+    walk_result = resolve_route(
+        origin=parking_point,
+        destination=metro_point,
+        departure_at=departure_at,
+        road_edges=road_edges,
+        speed_mps=walking_speed_mps(),
+        allow_direct_fallback=True,
+    )
+    assert walk_result is not None
 
     return ParkAndRideWalkLeg(
         from_name=parking.name,
         to_name=parking.metro_station,
         departure_at=departure_at,
-        arrival_at=departure_at + timedelta(seconds=duration_seconds),
-        distance_m=distance_m,
-        duration_seconds=duration_seconds,
+        arrival_at=walk_result.route.arrival_at,
+        distance_m=walk_result.route.total_distance_m,
+        duration_seconds=walk_result.route.total_duration_seconds,
+        path_positions=walk_result.path_positions,
     )
 
 
@@ -142,7 +153,11 @@ def find_park_and_ride_routes(
         if car_route is None:
             continue
 
-        walk_to_metro = build_walk_to_metro_leg(parking, car_route.arrival_at)
+        walk_to_metro = build_walk_to_metro_leg(
+            parking,
+            car_route.arrival_at,
+            road_edges=road_edges,
+        )
         metro_departure_at = walk_to_metro.arrival_at + timedelta(
             seconds=settings.park_and_ride_min_transfer_seconds
         )
@@ -153,6 +168,7 @@ def find_park_and_ride_routes(
             destination.lat,
             destination.lon,
             metro_departure_at,
+            road_edges=road_edges,
         )
 
         for public_transport_journey in public_transport_journeys:

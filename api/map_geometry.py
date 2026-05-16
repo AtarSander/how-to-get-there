@@ -24,7 +24,10 @@ def build_line_from_car_route(
     car_route: CarRoute,
 ) -> list[list[float]]:
     if not car_route.segments:
-        return [_point(origin.lat, origin.lon), _point(destination.lat, destination.lon)]
+        return [
+            _point(origin.lat, origin.lon),
+            _point(destination.lat, destination.lon),
+        ]
 
     positions: list[list[float]] = []
     _append_unique(positions, origin.lat, origin.lon)
@@ -45,7 +48,15 @@ def build_lines_from_public_transport(
     lines: list[list[list[float]]] = []
 
     for leg in journey.legs:
-        if leg.from_lat is None or leg.from_lon is None or leg.to_lat is None or leg.to_lon is None:
+        if leg.mode == "walk" and leg.path_positions:
+            lines.append([_point(lat, lon) for lat, lon in leg.path_positions])
+            continue
+        if (
+            leg.from_lat is None
+            or leg.from_lon is None
+            or leg.to_lat is None
+            or leg.to_lon is None
+        ):
             continue
         lines.append(
             [
@@ -55,7 +66,9 @@ def build_lines_from_public_transport(
         )
 
     if not lines:
-        lines.append([_point(origin.lat, origin.lon), _point(destination.lat, destination.lon)])
+        lines.append(
+            [_point(origin.lat, origin.lon), _point(destination.lat, destination.lon)]
+        )
 
     return lines
 
@@ -74,7 +87,9 @@ def build_option_map(
             "lines": [
                 {
                     "kind": "car",
-                    "positions": build_line_from_car_route(origin, destination, car_route),
+                    "positions": build_line_from_car_route(
+                        origin, destination, car_route
+                    ),
                 }
             ],
             "markers": [],
@@ -111,10 +126,17 @@ def build_option_map(
             },
             {
                 "kind": "walk",
-                "positions": [
-                    _point(parking.lat, parking.lon),
-                    _point(parking.metro_lat, parking.metro_lon),
-                ],
+                "positions": (
+                    [
+                        _point(lat, lon)
+                        for lat, lon in route.walk_to_metro.path_positions
+                    ]
+                    if route.walk_to_metro.path_positions
+                    else [
+                        _point(parking.lat, parking.lon),
+                        _point(parking.metro_lat, parking.metro_lon),
+                    ]
+                ),
             },
         ]
         lines.extend(
