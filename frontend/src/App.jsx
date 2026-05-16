@@ -2,11 +2,14 @@ import { useMemo, useState } from "react";
 import DirectionsCarIcon from "@mui/icons-material/DirectionsCar";
 import DirectionsTransitIcon from "@mui/icons-material/DirectionsTransit";
 import LocalParkingIcon from "@mui/icons-material/LocalParking";
+import PlaceIcon from "@mui/icons-material/Place";
+import FlagIcon from "@mui/icons-material/Flag";
 import {
   Alert,
   Box,
   Button,
   Card,
+  CardActionArea,
   CardContent,
   Chip,
   CircularProgress,
@@ -15,9 +18,12 @@ import {
   Grid,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { compareRoutes } from "./api";
+import RouteMap from "./RouteMap";
 
 const WARSAW_PRESETS = {
   centrum: { lat: 52.2297, lon: 21.0122, label: "Centrum" },
@@ -57,7 +63,7 @@ function getPublicTransportLegs(option) {
   return details?.legs ?? null;
 }
 
-function OptionCard({ option, highlighted }) {
+function OptionCard({ option, highlighted, selected, onSelect }) {
   const Icon = MODE_ICONS[option.mode] ?? DirectionsTransitIcon;
   const color = MODE_COLORS[option.mode] ?? "default";
   const legs = getPublicTransportLegs(option);
@@ -70,74 +76,84 @@ function OptionCard({ option, highlighted }) {
         borderLeftStyle: "solid",
         borderLeftColor: `${color}.main`,
         opacity: option.available ? 1 : 0.7,
-        outline: highlighted ? (theme) => `1px solid ${theme.palette.primary.main}` : "none",
+        outline: (theme) => {
+          if (selected) {
+            return `2px solid ${theme.palette.primary.main}`;
+          }
+          if (highlighted) {
+            return `1px solid ${theme.palette.primary.main}`;
+          }
+          return "none";
+        },
       }}
     >
-      <CardContent>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <Icon color={color} fontSize="small" />
-          <Typography variant="subtitle1" fontWeight={600}>
-            {option.label}
-          </Typography>
-          {highlighted && (
-            <Chip label="Najszybsza" size="small" color="primary" variant="outlined" />
-          )}
-        </Stack>
-
-        {option.available ? (
-          <>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 6, sm: 4 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Czas
-                </Typography>
-                <Typography fontWeight={600}>{option.total_minutes} min</Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Odjazd
-                </Typography>
-                <Typography fontWeight={600}>{formatTime(option.departure_at)}</Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Przyjazd
-                </Typography>
-                <Typography fontWeight={600}>{formatTime(option.arrival_at)}</Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Dystans
-                </Typography>
-                <Typography fontWeight={600}>
-                  {formatDistance(option.total_distance_m)}
-                </Typography>
-              </Grid>
-              <Grid size={{ xs: 6, sm: 4 }}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  Przesiadki
-                </Typography>
-                <Typography fontWeight={600}>{option.transfers ?? 0}</Typography>
-              </Grid>
-            </Grid>
-
-            {legs && legs.length > 0 && (
-              <Box component="ol" sx={{ mt: 2, mb: 0, pl: 2.5, color: "text.secondary" }}>
-                {legs.map((leg, index) => (
-                  <Typography component="li" variant="body2" key={`${leg.from_name}-${index}`}>
-                    {leg.from_name} → {leg.to_name}
-                    {leg.route_name ? ` (${leg.route_name})` : ""}
-                  </Typography>
-                ))}
-              </Box>
+      <CardActionArea onClick={() => onSelect(option.mode)} disabled={!option.available}>
+        <CardContent>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+            <Icon color={color} fontSize="small" />
+            <Typography variant="subtitle1" fontWeight={600}>
+              {option.label}
+            </Typography>
+            {highlighted && (
+              <Chip label="Najszybsza" size="small" color="primary" variant="outlined" />
             )}
-          </>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            {option.reason}
-          </Typography>
-        )}
-      </CardContent>
+          </Stack>
+
+          {option.available ? (
+            <>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Czas
+                  </Typography>
+                  <Typography fontWeight={600}>{option.total_minutes} min</Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Odjazd
+                  </Typography>
+                  <Typography fontWeight={600}>{formatTime(option.departure_at)}</Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Przyjazd
+                  </Typography>
+                  <Typography fontWeight={600}>{formatTime(option.arrival_at)}</Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Dystans
+                  </Typography>
+                  <Typography fontWeight={600}>
+                    {formatDistance(option.total_distance_m)}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Przesiadki
+                  </Typography>
+                  <Typography fontWeight={600}>{option.transfers ?? 0}</Typography>
+                </Grid>
+              </Grid>
+
+              {legs && legs.length > 0 && (
+                <Box component="ol" sx={{ mt: 2, mb: 0, pl: 2.5, color: "text.secondary" }}>
+                  {legs.map((leg, index) => (
+                    <Typography component="li" variant="body2" key={`${leg.from_name}-${index}`}>
+                      {leg.from_name} → {leg.to_name}
+                      {leg.route_name ? ` (${leg.route_name})` : ""}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {option.reason}
+            </Typography>
+          )}
+        </CardContent>
+      </CardActionArea>
     </Card>
   );
 }
@@ -159,14 +175,14 @@ function PresetChips({ target, onSelect }) {
 }
 
 export default function App() {
-  const [originLat, setOriginLat] = useState(String(WARSAW_PRESETS.centrum.lat));
-  const [originLon, setOriginLon] = useState(String(WARSAW_PRESETS.centrum.lon));
-  const [destinationLat, setDestinationLat] = useState(String(WARSAW_PRESETS.mokotow.lat));
-  const [destinationLon, setDestinationLon] = useState(String(WARSAW_PRESETS.mokotow.lon));
+  const [origin, setOrigin] = useState({ ...WARSAW_PRESETS.centrum });
+  const [destination, setDestination] = useState({ ...WARSAW_PRESETS.mokotow });
+  const [pickTarget, setPickTarget] = useState("origin");
   const [departureAt, setDepartureAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [activeMode, setActiveMode] = useState(null);
 
   const departureDefault = useMemo(() => {
     const now = new Date();
@@ -176,20 +192,31 @@ export default function App() {
     return local.toISOString().slice(0, 16);
   }, []);
 
+  function handleMapClick(lat, lon, target) {
+    const point = { lat, lon };
+    if (target === "origin") {
+      setOrigin(point);
+    } else {
+      setDestination(point);
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    setActiveMode(null);
 
     try {
       const comparison = await compareRoutes({
-        origin_lat: Number(originLat),
-        origin_lon: Number(originLon),
-        destination_lat: Number(destinationLat),
-        destination_lon: Number(destinationLon),
+        origin_lat: origin.lat,
+        origin_lon: origin.lon,
+        destination_lat: destination.lat,
+        destination_lon: destination.lon,
         departure_at: departureAt || undefined,
       });
       setResult(comparison);
+      setActiveMode(comparison.best_option?.mode ?? null);
     } catch (submitError) {
       setResult(null);
       setError(
@@ -203,17 +230,15 @@ export default function App() {
   function applyPreset(presetKey, target) {
     const point = WARSAW_PRESETS[presetKey];
     if (target === "origin") {
-      setOriginLat(String(point.lat));
-      setOriginLon(String(point.lon));
+      setOrigin({ lat: point.lat, lon: point.lon });
     } else {
-      setDestinationLat(String(point.lat));
-      setDestinationLon(String(point.lon));
+      setDestination({ lat: point.lat, lon: point.lon });
     }
   }
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 3 }}>
         <Typography
           variant="overline"
           color="text.secondary"
@@ -225,10 +250,23 @@ export default function App() {
           Jak tam dojechać?
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mt: 1, maxWidth: 560 }}>
-          Porównanie samochodu, komunikacji miejskiej i Park &amp; Ride na danych GTFS
-          i OSM.
+          Kliknij mapę, aby ustawić start i cel. Porównaj samochód, komunikację miejską
+          i Park &amp; Ride.
         </Typography>
       </Box>
+
+      <Card variant="outlined" sx={{ mb: 2.5, overflow: "hidden" }}>
+        <Box sx={{ height: { xs: 320, md: 420 }, position: "relative" }}>
+          <RouteMap
+            origin={origin}
+            destination={destination}
+            pickTarget={pickTarget}
+            onMapClick={handleMapClick}
+            result={result}
+            activeMode={activeMode}
+          />
+        </Box>
+      </Card>
 
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, md: 4 }}>
@@ -238,69 +276,46 @@ export default function App() {
                 Trasa
               </Typography>
 
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2, mb: 1 }}>
-                Start
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Wybierz, co ustawiasz na mapie, i kliknij punkt.
               </Typography>
-              <Grid container spacing={1.5}>
-                <Grid size={6}>
-                  <TextField
-                    label="Szerokość"
-                    type="number"
-                    value={originLat}
-                    onChange={(e) => setOriginLat(e.target.value)}
-                    required
-                    fullWidth
-                    size="small"
-                    inputProps={{ step: "any" }}
-                  />
-                </Grid>
-                <Grid size={6}>
-                  <TextField
-                    label="Długość"
-                    type="number"
-                    value={originLon}
-                    onChange={(e) => setOriginLon(e.target.value)}
-                    required
-                    fullWidth
-                    size="small"
-                    inputProps={{ step: "any" }}
-                  />
-                </Grid>
-              </Grid>
+
+              <ToggleButtonGroup
+                exclusive
+                fullWidth
+                size="small"
+                value={pickTarget}
+                onChange={(_event, value) => value && setPickTarget(value)}
+                sx={{ mb: 2 }}
+              >
+                <ToggleButton value="origin">
+                  <PlaceIcon fontSize="small" sx={{ mr: 0.75 }} />
+                  Start
+                </ToggleButton>
+                <ToggleButton value="destination">
+                  <FlagIcon fontSize="small" sx={{ mr: 0.75 }} />
+                  Cel
+                </ToggleButton>
+              </ToggleButtonGroup>
+
+              <Stack spacing={0.5} sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Start: {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Cel: {destination.lat.toFixed(4)}, {destination.lon.toFixed(4)}
+                </Typography>
+              </Stack>
+
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+                Szybkie presety
+              </Typography>
               <PresetChips target="origin" onSelect={applyPreset} />
+              <Box sx={{ mt: 1 }}>
+                <PresetChips target="destination" onSelect={applyPreset} />
+              </Box>
 
               <Divider sx={{ my: 2.5 }} />
-
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                Cel
-              </Typography>
-              <Grid container spacing={1.5}>
-                <Grid size={6}>
-                  <TextField
-                    label="Szerokość"
-                    type="number"
-                    value={destinationLat}
-                    onChange={(e) => setDestinationLat(e.target.value)}
-                    required
-                    fullWidth
-                    size="small"
-                    inputProps={{ step: "any" }}
-                  />
-                </Grid>
-                <Grid size={6}>
-                  <TextField
-                    label="Długość"
-                    type="number"
-                    value={destinationLon}
-                    onChange={(e) => setDestinationLon(e.target.value)}
-                    required
-                    fullWidth
-                    size="small"
-                    inputProps={{ step: "any" }}
-                  />
-                </Grid>
-              </Grid>
-              <PresetChips target="destination" onSelect={applyPreset} />
 
               <TextField
                 label="Wyjazd (opcjonalnie)"
@@ -309,7 +324,6 @@ export default function App() {
                 onChange={(e) => setDepartureAt(e.target.value)}
                 fullWidth
                 size="small"
-                sx={{ mt: 2.5 }}
                 slotProps={{
                   inputLabel: { shrink: true },
                   htmlInput: { placeholder: departureDefault },
@@ -344,13 +358,21 @@ export default function App() {
         </Grid>
 
         <Grid size={{ xs: 12, md: 8 }}>
-          <Typography variant="h6" gutterBottom>
-            Wyniki
-          </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="h6">Wyniki</Typography>
+            {result && activeMode && (
+              <Chip
+                label="Pokaż wszystkie trasy"
+                size="small"
+                variant="outlined"
+                onClick={() => setActiveMode(null)}
+              />
+            )}
+          </Stack>
 
           {!result && !loading && (
             <Typography color="text.secondary">
-              Ustaw punkty startu i celu, potem uruchom porównanie.
+              Ustaw start i cel na mapie, potem uruchom porównanie.
             </Typography>
           )}
 
@@ -361,6 +383,8 @@ export default function App() {
                   key={option.mode}
                   option={option}
                   highlighted={result.best_option?.mode === option.mode}
+                  selected={activeMode === option.mode}
+                  onSelect={setActiveMode}
                 />
               ))}
             </Stack>
