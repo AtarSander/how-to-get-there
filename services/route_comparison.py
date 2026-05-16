@@ -13,6 +13,7 @@ from services.car_routing import (
     TrafficProfile,
     estimate_direct_car_route,
     find_car_route,
+    haversine_distance_m,
 )
 from services.park_and_ride import ParkAndRideRoute, find_park_and_ride_routes
 from services.public_transport import (
@@ -107,6 +108,23 @@ def option_from_car_route(route: CarRoute, departure_at: datetime) -> RouteOptio
     )
 
 
+def estimate_journey_distance_m(journey: PublicTransportJourney) -> float:
+    total = 0.0
+    for leg in journey.legs:
+        if (
+            leg.from_lat is None
+            or leg.from_lon is None
+            or leg.to_lat is None
+            or leg.to_lon is None
+        ):
+            continue
+        total += haversine_distance_m(
+            GeoPoint(leg.from_lat, leg.from_lon),
+            GeoPoint(leg.to_lat, leg.to_lon),
+        )
+    return total
+
+
 def option_from_public_transport(
     journey: PublicTransportJourney,
     departure_at: datetime,
@@ -118,7 +136,7 @@ def option_from_public_transport(
         departure_at=departure_at,
         arrival_at=journey.arrival_at,
         total_minutes=journey.total_minutes,
-        total_distance_m=None,
+        total_distance_m=estimate_journey_distance_m(journey),
         transfers=journey.transfers,
         details=journey,
     )
