@@ -7,10 +7,12 @@ road data, and PostGIS.
 ## Structure
 
 ```text
-app.py                  Streamlit entry point
+api/                    Flask REST API
+frontend/               React + MUI (Vite, JavaScript)
 config/                 Runtime settings, schema constants, JSON loaders
 data/config/            Static domain data: metro model, Park & Ride locations
 database/               SQLAlchemy connection and query helpers
+run.py                  Flask dev server entry point
 scripts/                Data download/import/update scripts
 services/               Routing and route comparison logic
 tests/                  Pytest test suite
@@ -23,6 +25,7 @@ should not be committed.
 
 - Python 3.14+
 - `uv`
+- Node.js 20+
 - PostgreSQL with PostGIS enabled
 
 Enable PostGIS in the target database:
@@ -44,6 +47,10 @@ GTFS_KEEP_STOP_TIMES=false
 GTFS_CREATE_HEAVY_INDEXES=false
 GTFS_CREATE_OPTIONAL_INDEXES=false
 GTFS_INCLUDE_PSEUDO_METRO=true
+
+FLASK_HOST=127.0.0.1
+FLASK_PORT=5000
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
 The pseudo-metro model is stored in `data/config/metro.json`. Park & Ride
@@ -51,7 +58,7 @@ locations are stored in `data/config/park_and_ride.json`.
 
 ## Commands
 
-Install dependencies:
+Install Python dependencies:
 
 ```bash
 uv sync
@@ -84,10 +91,35 @@ uv run python scripts/download_osm_road_network.py
 uv run python scripts/import_osm_road_network.py
 ```
 
-Run the Streamlit app:
+### Development (Flask + React)
+
+Backend API:
 
 ```bash
-uv run streamlit run app.py
+uv run python run.py
+```
+
+Frontend (proxies `/api` to Flask on port 5000):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173
+
+### API
+
+- `GET /api/health` — health check
+- `POST /api/routes/compare` — compare car, public transport, and Park & Ride
+
+Example request:
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/routes/compare \
+  -H "Content-Type: application/json" \
+  -d "{\"origin_lat\":52.2297,\"origin_lon\":21.0122,\"destination_lat\":52.1934,\"destination_lon\":21.0346}"
 ```
 
 ## Notes
