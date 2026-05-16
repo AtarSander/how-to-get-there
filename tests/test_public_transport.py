@@ -283,6 +283,86 @@ def test_find_public_transport_connections_ranks_by_final_arrival_after_walk(
     _mocked_resolve_ride_path_positions.assert_called_once()
 
 
+@patch("services.public_transport.resolve_ride_path_positions", return_value=None)
+@patch("services.public_transport.fetch_reachable_connection_segments")
+@patch("services.public_transport.fetch_active_service_ids")
+@patch("services.public_transport.fetch_nearest_stops")
+def test_find_public_transport_connections_can_finish_with_walk_from_reached_stop(
+    mocked_fetch_nearest_stops: Mock,
+    mocked_fetch_active_service_ids: Mock,
+    mocked_fetch_reachable_connection_segments: Mock,
+    _mocked_resolve_ride_path_positions: Mock,
+) -> None:
+    requested_departure = datetime(2026, 5, 2, 8, 0, 0)
+
+    mocked_fetch_nearest_stops.side_effect = [
+        [
+            NearbyStop("A", "Origin Stop", 52.0, 21.0, 0.0),
+        ],
+        [
+            NearbyStop("D", "Formal Destination Stop", 52.0, 21.01, 0.0),
+        ],
+    ]
+    mocked_fetch_active_service_ids.return_value = {"weekday"}
+    mocked_fetch_reachable_connection_segments.side_effect = [
+        [
+            ConnectionSegment(
+                trip_id="trip-walkable",
+                route_id="route-walkable",
+                route_short_name="W",
+                trip_headsign="Walkable",
+                from_stop_id="A",
+                from_stop_name="Origin Stop",
+                to_stop_id="C",
+                to_stop_name="Walkable Stop",
+                departure_time="08:02:00",
+                arrival_time="08:10:00",
+                from_stop_sequence=1,
+                to_stop_sequence=2,
+                from_lat=52.0,
+                from_lon=21.0,
+                to_lat=52.0,
+                to_lon=21.009,
+            ),
+            ConnectionSegment(
+                trip_id="trip-formal",
+                route_id="route-formal",
+                route_short_name="F",
+                trip_headsign="Formal",
+                from_stop_id="A",
+                from_stop_name="Origin Stop",
+                to_stop_id="D",
+                to_stop_name="Formal Destination Stop",
+                departure_time="08:02:00",
+                arrival_time="08:25:00",
+                from_stop_sequence=1,
+                to_stop_sequence=2,
+                from_lat=52.0,
+                from_lon=21.0,
+                to_lat=52.0,
+                to_lon=21.01,
+            ),
+        ],
+        [],
+    ]
+
+    journeys = find_public_transport_connections(
+        engine=object(),
+        origin_lat=52.0,
+        origin_lon=21.0,
+        destination_lat=52.0,
+        destination_lon=21.01,
+        requested_departure_at=requested_departure,
+        limit=1,
+    )
+
+    assert len(journeys) == 1
+    assert journeys[0].legs[1].to_name == "Walkable Stop"
+    assert journeys[0].legs[-1].from_name == "Walkable Stop"
+    assert journeys[0].arrival_at < datetime(2026, 5, 2, 8, 25, 0)
+    _mocked_resolve_ride_path_positions.assert_called_once()
+
+
 @patch("services.public_transport.resolve_ride_path_positions")
 def test_build_journey_from_segments_can_skip_ride_geometry(
     mocked_resolve_ride_path_positions: Mock,

@@ -10,6 +10,7 @@ from config.settings import settings
 from services.car_routing import (
     GeoPoint,
     RoadEdge,
+    haversine_distance_m,
     resolve_route,
     walking_speed_mps,
 )
@@ -620,6 +621,65 @@ def journey_arrival_seconds(
     return int((journey.arrival_at - service_day_start).total_seconds())
 
 
+def destination_stop_from_segment(
+    segment: ConnectionSegment,
+    destination_point: GeoPoint,
+) -> NearbyStop:
+    stop_point = GeoPoint(segment.to_lat, segment.to_lon)
+    return NearbyStop(
+        stop_id=segment.to_stop_id,
+        stop_name=segment.to_stop_name,
+        lat=segment.to_lat,
+        lon=segment.to_lon,
+        distance_m=haversine_distance_m(stop_point, destination_point),
+    )
+
+
+def journey_candidate_key(
+    destination_stop: NearbyStop,
+    segments: list[ConnectionSegment],
+) -> tuple[Any, ...]:
+    return (
+        destination_stop.stop_id,
+        tuple(
+            (
+                segment.trip_id,
+                segment.from_stop_id,
+                segment.to_stop_id,
+                segment.departure_time,
+                segment.arrival_time,
+            )
+            for segment in segments
+        ),
+    )
+
+
+def add_journey_candidate(
+    candidates: list[JourneyCandidate],
+    seen_candidate_keys: set[tuple[Any, ...]],
+    destination_stop: NearbyStop,
+    boardings: int,
+    final_arrival_seconds: int,
+    ride_segments: list[ConnectionSegment],
+) -> None:
+    key = journey_candidate_key(destination_stop, ride_segments)
+    if key in seen_candidate_keys:
+        return
+
+    seen_candidate_keys.add(key)
+    candidates.append(
+        JourneyCandidate(
+            estimated_arrival_seconds=(
+                final_arrival_seconds
+                + estimate_walking_seconds(destination_stop.distance_m)
+            ),
+            boardings=boardings,
+            destination_stop=destination_stop,
+            segments=ride_segments,
+        )
+    )
+
+
 def find_public_transport_connections(
     engine: Engine,
     origin_lat: float,
@@ -651,6 +711,9 @@ def find_public_transport_connections(
     )
     limit = limit or settings.public_transport_result_limit
 
+    origin_point = GeoPoint(origin_lat, origin_lon)
+    destination_point = GeoPoint(destination_lat, destination_lon)
+
     origin_stops = fetch_nearest_stops(
         engine,
         lat=origin_lat,
@@ -666,7 +729,7 @@ def find_public_transport_connections(
         limit=stop_limit,
     )
 
-    if not origin_stops or not destination_stops:
+    if not origin_stops:
         return []
 
     service_ids = fetch_active_service_ids(engine, requested_departure_at.date())
@@ -740,6 +803,7 @@ def find_public_transport_connections(
         )
 
     candidates: list[JourneyCandidate] = []
+    seen_candidate_keys: set[tuple[Any, ...]] = set()
 
     for destination_stop in destination_stops:
         for boardings in range(1, max_boardings + 1):
@@ -759,17 +823,42 @@ def find_public_transport_connections(
             if first_origin_stop_id not in origin_stop_by_id:
                 continue
 
-            estimated_arrival_seconds = best_arrivals[
-                final_state
-            ] + estimate_walking_seconds(destination_stop.distance_m)
-            candidates.append(
-                JourneyCandidate(
-                    estimated_arrival_seconds=estimated_arrival_seconds,
-                    boardings=boardings,
-                    destination_stop=destination_stop,
-                    segments=ride_segments,
-                )
+            add_journey_candidate(
+                candidates=candidates,
+                seen_candidate_keys=seen_candidate_keys,
+                destination_stop=destination_stop,
+                boardings=boardings,
+                final_arrival_seconds=best_arrivals[final_state],
+                ride_segments=ride_segments,
             )
+
+    for final_state, final_arrival_seconds in best_arrivals.items():
+        if final_state.kind != "offboard" or final_state.boardings < 1:
+            continue
+
+        ride_segments = reconstruct_segments(final_state, predecessors)
+        if not ride_segments:
+            continue
+
+        first_origin_stop_id = ride_segments[0].from_stop_id
+        if first_origin_stop_id not in origin_stop_by_id:
+            continue
+
+        destination_stop = destination_stop_from_segment(
+            segment=ride_segments[-1],
+            destination_point=destination_point,
+        )
+        if destination_stop.distance_m > max_stop_distance_m:
+            continue
+
+        add_journey_candidate(
+            candidates=candidates,
+            seen_candidate_keys=seen_candidate_keys,
+            destination_stop=destination_stop,
+            boardings=final_state.boardings,
+            final_arrival_seconds=final_arrival_seconds,
+            ride_segments=ride_segments,
+        )
 
     candidates.sort(
         key=lambda candidate: (
@@ -801,8 +890,8 @@ def find_public_transport_connections(
 
         journey = build_journey_from_segments(
             requested_departure_at=requested_departure_at,
-            origin_point=GeoPoint(origin_lat, origin_lon),
-            destination_point=GeoPoint(destination_lat, destination_lon),
+            origin_point=origin_point,
+            destination_point=destination_point,
             origin_stop=origin_stop_by_id[first_origin_stop_id],
             destination_stop=candidate.destination_stop,
             segments=candidate.segments,
@@ -842,8 +931,8 @@ def find_public_transport_connections(
         first_origin_stop_id = candidate.segments[0].from_stop_id
         journey_with_geometry = build_journey_from_segments(
             requested_departure_at=requested_departure_at,
-            origin_point=GeoPoint(origin_lat, origin_lon),
-            destination_point=GeoPoint(destination_lat, destination_lon),
+            origin_point=origin_point,
+            destination_point=destination_point,
             origin_stop=origin_stop_by_id[first_origin_stop_id],
             destination_stop=candidate.destination_stop,
             segments=candidate.segments,
