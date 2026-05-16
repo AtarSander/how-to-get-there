@@ -57,5 +57,18 @@ class Settings(BaseSettings):
     osmnx_cache_path: Path = BASE_DIR / "data" / "raw" / "osmnx_cache"
     processed_data_path: Path = BASE_DIR / "data" / "processed"
 
+    flask_host: str = "127.0.0.1"
+    flask_port: int = 5000
+    flask_debug: bool = True
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
+
 
 settings = Settings()

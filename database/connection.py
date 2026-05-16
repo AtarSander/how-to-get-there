@@ -1,16 +1,19 @@
-import streamlit as st
+from __future__ import annotations
+
+from functools import lru_cache
+
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from config.settings import settings
 
 
-@st.cache_resource
-def get_engine() -> Engine:
+def resolve_database_url() -> str:
     database_url = settings.database_url or settings.database_private_url
-
     if not database_url:
-        database_url = st.secrets["database"]["url"]
+        raise RuntimeError(
+            "DATABASE_URL is not configured. Set it in the project .env file."
+        )
 
     if database_url.startswith("postgres://"):
         database_url = database_url.replace(
@@ -25,9 +28,18 @@ def get_engine() -> Engine:
             1,
         )
 
+    return database_url
+
+
+@lru_cache(maxsize=1)
+def get_engine() -> Engine:
     return create_engine(
-        database_url,
+        resolve_database_url(),
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=2,
     )
+
+
+def reset_engine_cache() -> None:
+    get_engine.cache_clear()

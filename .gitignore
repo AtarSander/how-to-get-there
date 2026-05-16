@@ -223,9 +223,13 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Streamlit
-.streamlit/secrets.toml
+# Downloaded datasets (local only)
+data/raw/
+data/gtfs/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
 
 # Virtual environments
 .venv
-.streamlit
