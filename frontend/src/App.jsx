@@ -26,6 +26,11 @@ import AddressSearch from "./AddressSearch";
 import { compareRoutes } from "./api";
 import { useLanguage } from "./language/LanguageContext";
 import {
+  buildJourneyTimeline,
+  collectDisplayLegs,
+  formatLegModeLabel,
+} from "./journeyDisplay";
+import {
   getOptionDisplayLabel,
   getOptionReason,
   translateLegPlaceName,
@@ -71,9 +76,70 @@ function formatDistance(meters) {
   return `${Math.round(meters)} m`;
 }
 
-function getPublicTransportLegs(option) {
-  const details = option.details?.public_transport;
-  return details?.legs ?? null;
+function JourneyTimeline({ option }) {
+  const { locale, t } = useLanguage();
+  const legs = collectDisplayLegs(option);
+  if (!legs?.length) {
+    return null;
+  }
+
+  const timeline = buildJourneyTimeline(legs);
+
+  return (
+    <Box component="ul" sx={{ mt: 2, mb: 0, pl: 0, listStyle: "none" }}>
+      {timeline.map((item) => {
+        if (item.type === "transfer") {
+          return (
+            <Box
+              component="li"
+              key={`transfer-${item.stopName}-${item.arrivalAt}`}
+              sx={{
+                py: 0.75,
+                px: 1,
+                mb: 0.75,
+                borderRadius: 1,
+                bgcolor: "action.hover",
+                borderLeft: "3px solid",
+                borderColor: "warning.main",
+              }}
+            >
+              <Typography variant="body2" fontWeight={600} color="text.primary">
+                {t("leg.transferAt", { stop: translateLegPlaceName(item.stopName, t) })}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block">
+                {t("leg.transferWait", {
+                  arrival: formatTime(item.arrivalAt, locale),
+                  departure: formatTime(item.departureAt, locale),
+                  minutes: item.waitMinutes ?? 0,
+                })}
+              </Typography>
+            </Box>
+          );
+        }
+
+        const { leg } = item;
+        const modeLabel = formatLegModeLabel(leg, t);
+
+        return (
+          <Box component="li" key={`leg-${item.index}-${leg.departure_at}`} sx={{ mb: 0.75 }}>
+            <Typography variant="body2" color="text.primary">
+              <Box component="span" sx={{ fontFamily: '"IBM Plex Mono", monospace', mr: 1 }}>
+                {formatTime(leg.departure_at, locale)}–{formatTime(leg.arrival_at, locale)}
+              </Box>
+              {translateLegPlaceName(leg.from_name, t)} →{" "}
+              {translateLegPlaceName(leg.to_name, t)}
+            </Typography>
+            {modeLabel && (
+              <Typography variant="caption" color="text.secondary" display="block">
+                {modeLabel}
+                {leg.trip_headsign ? ` · ${leg.trip_headsign}` : ""}
+              </Typography>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
 }
 
 function LanguageSwitcher() {
@@ -100,7 +166,6 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
   const { locale, t } = useLanguage();
   const Icon = MODE_ICONS[option.mode] ?? DirectionsTransitIcon;
   const color = MODE_COLORS[option.mode] ?? "default";
-  const legs = getPublicTransportLegs(option);
   const label = getOptionDisplayLabel(option, t);
   const reason = getOptionReason(option, t);
 
@@ -183,17 +248,7 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
                 </Grid>
               </Grid>
 
-              {legs && legs.length > 0 && (
-                <Box component="ol" sx={{ mt: 2, mb: 0, pl: 2.5, color: "text.secondary" }}>
-                  {legs.map((leg, index) => (
-                    <Typography component="li" variant="body2" key={`${leg.from_name}-${index}`}>
-                      {translateLegPlaceName(leg.from_name, t)} →{" "}
-                      {translateLegPlaceName(leg.to_name, t)}
-                      {leg.route_name ? ` (${leg.route_name})` : ""}
-                    </Typography>
-                  ))}
-                </Box>
-              )}
+              <JourneyTimeline option={option} />
             </>
           ) : (
             <Typography variant="body2" color="text.secondary">

@@ -61,6 +61,11 @@ export const translations = {
     leg: {
       origin: "punkt startowy",
       destination: "cel",
+      modeWalk: "Pieszo",
+      modeCar: "Samochód",
+      modeRide: "Kurs",
+      transferAt: "Przesiadka: {{stop}}",
+      transferWait: "przyjazd {{arrival}}, odjazd {{departure}} ({{minutes}} min)",
     },
     presets: {
       centrum: "Centrum",
@@ -131,6 +136,11 @@ export const translations = {
     leg: {
       origin: "origin",
       destination: "destination",
+      modeWalk: "Walk",
+      modeCar: "Car",
+      modeRide: "Ride",
+      transferAt: "Transfer at {{stop}}",
+      transferWait: "arrive {{arrival}}, depart {{departure}} ({{minutes}} min)",
     },
     presets: {
       centrum: "City centre",
