@@ -9,7 +9,6 @@ import {
   Box,
   Button,
   Card,
-  CardActionArea,
   CardContent,
   Chip,
   CircularProgress,
@@ -172,11 +171,13 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
   return (
     <Card
       variant="outlined"
+      onClick={() => option.available && onSelect(option.mode)}
       sx={{
         borderLeftWidth: 4,
         borderLeftStyle: "solid",
         borderLeftColor: `${color}.main`,
         opacity: option.available ? 1 : 0.7,
+        cursor: option.available ? "pointer" : "default",
         outline: (theme) => {
           if (selected) {
             return `2px solid ${theme.palette.primary.main}`;
@@ -188,8 +189,7 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
         },
       }}
     >
-      <CardActionArea onClick={() => onSelect(option.mode)} disabled={!option.available}>
-        <CardContent>
+      <CardContent>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <Icon color={color} fontSize="small" />
             <Typography variant="subtitle1" fontWeight={600}>
@@ -255,8 +255,7 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
               {reason}
             </Typography>
           )}
-        </CardContent>
-      </CardActionArea>
+      </CardContent>
     </Card>
   );
 }
@@ -449,10 +448,19 @@ export default function App() {
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
                 {t("form.quickPresets")}
               </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.25 }}>
+                {t("form.presetForOrigin")}
+              </Typography>
               <PresetChips target="origin" onSelect={applyPreset} />
-              <Box sx={{ mt: 1 }}>
-                <PresetChips target="destination" onSelect={applyPreset} />
-              </Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ mt: 1, mb: 0.25 }}
+              >
+                {t("form.presetForDestination")}
+              </Typography>
+              <PresetChips target="destination" onSelect={applyPreset} />
 
               <Divider sx={{ my: 2.5 }} />
 
