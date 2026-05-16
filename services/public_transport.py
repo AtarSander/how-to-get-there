@@ -12,6 +12,7 @@ from services.car_routing import (
     resolve_route,
     walking_speed_mps,
 )
+from services.gtfs_geometry import resolve_ride_path_positions
 from database.queries import (
     ConnectionSegment,
     DirectConnectionCandidate,
@@ -139,6 +140,7 @@ def build_journey_from_candidate(
     destination_stop: NearbyStop,
     candidate: DirectConnectionCandidate,
     road_edges: list[RoadEdge] | None = None,
+    engine: Engine | None = None,
 ) -> PublicTransportJourney | None:
     request_offset = requested_departure_at - requested_departure_at.replace(
         hour=0,
@@ -191,6 +193,23 @@ def build_journey_from_candidate(
     )
 
     route_name = candidate.route_short_name or candidate.route_id
+    ride_path_positions = (
+        resolve_ride_path_positions(
+            engine=engine,
+            trip_id=candidate.trip_id,
+            from_stop_sequence=candidate.from_stop_sequence,
+            to_stop_sequence=candidate.to_stop_sequence,
+            from_lat=origin_stop.lat,
+            from_lon=origin_stop.lon,
+            to_lat=destination_stop.lat,
+            to_lon=destination_stop.lon,
+            from_shape_dist_traveled=candidate.from_shape_dist_traveled,
+            to_shape_dist_traveled=candidate.to_shape_dist_traveled,
+        )
+        if candidate.from_stop_sequence is not None
+        and candidate.to_stop_sequence is not None
+        else None
+    )
 
     return PublicTransportJourney(
         departure_at=requested_departure_at,
@@ -214,6 +233,7 @@ def build_journey_from_candidate(
                 from_lon=origin_stop.lon,
                 to_lat=destination_stop.lat,
                 to_lon=destination_stop.lon,
+                path_positions=ride_path_positions,
             ),
             egress_leg,
         ],
@@ -383,6 +403,8 @@ def compress_segments_into_rides(
                 from_lon=last_ride.from_lon,
                 to_lat=segment.to_lat,
                 to_lon=segment.to_lon,
+                from_shape_dist_traveled=last_ride.from_shape_dist_traveled,
+                to_shape_dist_traveled=segment.to_shape_dist_traveled,
             )
             continue
 
@@ -399,6 +421,7 @@ def build_journey_from_segments(
     destination_stop: NearbyStop,
     segments: list[ConnectionSegment],
     road_edges: list[RoadEdge] | None = None,
+    engine: Engine | None = None,
 ) -> PublicTransportJourney | None:
     if not segments:
         return None
@@ -455,6 +478,18 @@ def build_journey_from_segments(
                 from_lon=ride.from_lon,
                 to_lat=ride.to_lat,
                 to_lon=ride.to_lon,
+                path_positions=resolve_ride_path_positions(
+                    engine=engine,
+                    trip_id=ride.trip_id,
+                    from_stop_sequence=ride.from_stop_sequence,
+                    to_stop_sequence=ride.to_stop_sequence,
+                    from_lat=ride.from_lat,
+                    from_lon=ride.from_lon,
+                    to_lat=ride.to_lat,
+                    to_lon=ride.to_lon,
+                    from_shape_dist_traveled=ride.from_shape_dist_traveled,
+                    to_shape_dist_traveled=ride.to_shape_dist_traveled,
+                ),
             )
         )
 
@@ -633,6 +668,7 @@ def find_public_transport_connections(
                 destination_stop=destination_stop,
                 segments=ride_segments,
                 road_edges=road_edges,
+                engine=engine,
             )
             if journey is None:
                 continue

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     gtfs_keep_stop_times: bool = False
     gtfs_include_pseudo_metro: bool = True
     gtfs_stop_times_read_chunksize: int = 50_000
+    gtfs_shapes_read_chunksize: int = 100_000
     gtfs_sql_insert_chunksize: int = 2_000
     gtfs_small_table_sql_chunksize: int = 5_000
 

@@ -122,6 +122,7 @@ def test_build_journey_from_segments_counts_transfers() -> None:
     assert journey.legs[2].route_name == "M1"
 
 
+@patch("services.public_transport.resolve_ride_path_positions", return_value=None)
 @patch("services.public_transport.fetch_reachable_connection_segments")
 @patch("services.public_transport.fetch_active_service_ids")
 @patch("services.public_transport.fetch_nearest_stops")
@@ -129,6 +130,7 @@ def test_find_public_transport_connections_supports_transfer_paths(
     mocked_fetch_nearest_stops: Mock,
     mocked_fetch_active_service_ids: Mock,
     mocked_fetch_reachable_connection_segments: Mock,
+    _mocked_resolve_ride_path_positions: Mock,
 ) -> None:
     requested_departure = datetime(2026, 5, 2, 8, 0, 0)
 

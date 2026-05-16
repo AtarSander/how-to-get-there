@@ -8,6 +8,7 @@ GTFS_TABLES = {
     "routes.txt": "gtfs_routes",
     "trips.txt": "gtfs_trips",
     "stop_times.txt": "gtfs_stop_times",
+    "shapes.txt": "gtfs_shapes",
     "segments": "gtfs_segments",
     "calendar.txt": "gtfs_calendar",
     "calendar_dates.txt": "gtfs_calendar_dates",
@@ -43,6 +44,7 @@ GTFS_COLUMNS = {
         "trip_id",
         "trip_headsign",
         "direction_id",
+        "shape_id",
     ],
     "stop_times.txt": [
         "trip_id",
@@ -50,6 +52,13 @@ GTFS_COLUMNS = {
         "departure_time",
         "stop_id",
         "stop_sequence",
+        "shape_dist_traveled",
+    ],
+    "shapes.txt": [
+        "shape_id",
+        "shape_pt_lat",
+        "shape_pt_lon",
+        "shape_pt_sequence",
     ],
     "calendar.txt": [
         "service_id",
@@ -98,6 +107,7 @@ GTFS_DTYPES = {
         "trip_id": Text(),
         "trip_headsign": Text(),
         "direction_id": Integer(),
+        "shape_id": Text(),
     },
     "gtfs_stop_times": {
         "trip_id": Text(),
@@ -105,6 +115,13 @@ GTFS_DTYPES = {
         "departure_time": Text(),
         "stop_id": Text(),
         "stop_sequence": Integer(),
+        "shape_dist_traveled": Float(),
+    },
+    "gtfs_shapes": {
+        "shape_id": Text(),
+        "shape_pt_sequence": Integer(),
+        "shape_pt_lat": Float(),
+        "shape_pt_lon": Float(),
     },
     "gtfs_segments": {
         "trip_id": Text(),
@@ -116,6 +133,8 @@ GTFS_DTYPES = {
         "arrival_seconds": Integer(),
         "from_stop_sequence": Integer(),
         "to_stop_sequence": Integer(),
+        "from_shape_dist_traveled": Float(),
+        "to_shape_dist_traveled": Float(),
     },
     "gtfs_calendar": {
         "service_id": Text(),

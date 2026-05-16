@@ -51,6 +51,10 @@ class DirectConnectionCandidate:
     departure_time: str
     arrival_time: str
     stop_count: int
+    from_stop_sequence: int | None = None
+    to_stop_sequence: int | None = None
+    from_shape_dist_traveled: float | None = None
+    to_shape_dist_traveled: float | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +75,8 @@ class ConnectionSegment:
     from_lon: float
     to_lat: float
     to_lon: float
+    from_shape_dist_traveled: float | None = None
+    to_shape_dist_traveled: float | None = None
 
 
 @dataclass(frozen=True)
@@ -235,7 +241,11 @@ def fetch_direct_connection_candidates(
             destination_stops.stop_name AS destination_stop_name,
             origin.departure_seconds,
             destination.arrival_seconds,
-            destination.to_stop_sequence - origin.from_stop_sequence AS stop_count
+            destination.to_stop_sequence - origin.from_stop_sequence AS stop_count,
+            origin.from_stop_sequence,
+            destination.to_stop_sequence,
+            origin.from_shape_dist_traveled,
+            destination.to_shape_dist_traveled
         FROM gtfs_segments AS origin
         JOIN gtfs_segments AS destination
           ON destination.trip_id = origin.trip_id
@@ -286,9 +296,124 @@ def fetch_direct_connection_candidates(
                 departure_time=_seconds_to_gtfs_time(row["departure_seconds"]),
                 arrival_time=_seconds_to_gtfs_time(row["arrival_seconds"]),
                 stop_count=int(row["stop_count"]),
+                from_stop_sequence=int(row["from_stop_sequence"]),
+                to_stop_sequence=int(row["to_stop_sequence"]),
+                from_shape_dist_traveled=_optional_float(
+                    row.get("from_shape_dist_traveled")
+                ),
+                to_shape_dist_traveled=_optional_float(row.get("to_shape_dist_traveled")),
             )
             for row in rows
         ]
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def fetch_trip_shape_id(engine: Engine, trip_id: str) -> str | None:
+    _, text = _require_sqlalchemy()
+    query = text(
+        """
+        SELECT shape_id
+        FROM gtfs_trips
+        WHERE trip_id = :trip_id
+        LIMIT 1;
+        """
+    )
+
+    with engine.begin() as conn:
+        row = conn.execute(query, {"trip_id": trip_id}).mappings().first()
+
+    if row is None:
+        return None
+
+    shape_id = row.get("shape_id")
+    if shape_id is None:
+        return None
+
+    shape_id = str(shape_id).strip()
+    return shape_id or None
+
+
+def fetch_shape_points(
+    engine: Engine,
+    shape_id: str,
+) -> tuple[tuple[float, float], ...]:
+    _, text = _require_sqlalchemy()
+    query = text(
+        """
+        SELECT shape_pt_lat, shape_pt_lon
+        FROM gtfs_shapes
+        WHERE shape_id = :shape_id
+        ORDER BY shape_pt_sequence ASC;
+        """
+    )
+
+    with engine.begin() as conn:
+        rows = conn.execute(query, {"shape_id": shape_id}).mappings()
+
+        return tuple(
+            (float(row["shape_pt_lat"]), float(row["shape_pt_lon"]))
+            for row in rows
+        )
+
+
+def fetch_stop_chain_positions(
+    engine: Engine,
+    trip_id: str,
+    from_stop_sequence: int,
+    to_stop_sequence: int,
+) -> tuple[tuple[float, float], ...]:
+    _, text = _require_sqlalchemy()
+    query = text(
+        """
+        SELECT
+            segments.from_stop_sequence,
+            from_stops.stop_lat AS from_stop_lat,
+            from_stops.stop_lon AS from_stop_lon,
+            to_stops.stop_lat AS to_stop_lat,
+            to_stops.stop_lon AS to_stop_lon,
+            segments.to_stop_sequence
+        FROM gtfs_segments AS segments
+        JOIN gtfs_stops AS from_stops
+          ON from_stops.stop_id = segments.from_stop_id
+        JOIN gtfs_stops AS to_stops
+          ON to_stops.stop_id = segments.to_stop_id
+        WHERE segments.trip_id = :trip_id
+          AND segments.from_stop_sequence >= :from_stop_sequence
+          AND segments.to_stop_sequence <= :to_stop_sequence
+        ORDER BY segments.from_stop_sequence ASC;
+        """
+    )
+
+    with engine.begin() as conn:
+        rows = list(
+            conn.execute(
+                query,
+                {
+                    "trip_id": trip_id,
+                    "from_stop_sequence": from_stop_sequence,
+                    "to_stop_sequence": to_stop_sequence,
+                },
+            ).mappings()
+        )
+
+    if not rows:
+        return ()
+
+    positions: list[tuple[float, float]] = []
+    for row in rows:
+        from_position = (float(row["from_stop_lat"]), float(row["from_stop_lon"]))
+        to_position = (float(row["to_stop_lat"]), float(row["to_stop_lon"]))
+        if not positions or positions[-1] != from_position:
+            positions.append(from_position)
+        if positions[-1] != to_position:
+            positions.append(to_position)
+
+    return tuple(positions)
 
 
 def fetch_connection_segments(
@@ -322,7 +447,9 @@ def fetch_connection_segments(
             departure_seconds,
             arrival_seconds,
             from_stop_sequence,
-            to_stop_sequence
+            to_stop_sequence,
+            from_shape_dist_traveled,
+            to_shape_dist_traveled
         FROM gtfs_segments AS segments
         JOIN gtfs_stops AS from_stops
           ON from_stops.stop_id = segments.from_stop_id
@@ -375,6 +502,10 @@ def fetch_connection_segments(
                 from_lon=float(row["from_stop_lon"]),
                 to_lat=float(row["to_stop_lat"]),
                 to_lon=float(row["to_stop_lon"]),
+                from_shape_dist_traveled=_optional_float(
+                    row.get("from_shape_dist_traveled")
+                ),
+                to_shape_dist_traveled=_optional_float(row.get("to_shape_dist_traveled")),
             )
             for row in rows
         ]
@@ -496,7 +627,9 @@ def fetch_reachable_connection_segments(
             segments.departure_seconds,
             segments.arrival_seconds,
             segments.from_stop_sequence,
-            segments.to_stop_sequence
+            segments.to_stop_sequence,
+            segments.from_shape_dist_traveled,
+            segments.to_shape_dist_traveled
         FROM gtfs_segments AS segments
         JOIN boardable_trips
           ON boardable_trips.trip_id = segments.trip_id
@@ -542,6 +675,10 @@ def fetch_reachable_connection_segments(
                 from_lon=float(row["from_stop_lon"]),
                 to_lat=float(row["to_stop_lat"]),
                 to_lon=float(row["to_stop_lon"]),
+                from_shape_dist_traveled=_optional_float(
+                    row.get("from_shape_dist_traveled")
+                ),
+                to_shape_dist_traveled=_optional_float(row.get("to_shape_dist_traveled")),
             )
             for row in rows
         ]

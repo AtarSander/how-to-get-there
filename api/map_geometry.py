@@ -48,7 +48,7 @@ def build_lines_from_public_transport(
     lines: list[list[list[float]]] = []
 
     for leg in journey.legs:
-        if leg.mode == "walk" and leg.path_positions:
+        if leg.path_positions:
             lines.append([_point(lat, lon) for lat, lon in leg.path_positions])
             continue
         if (

@@ -40,6 +40,7 @@ class GtfsImportScope:
     service_ids: set[str]
     trip_ids: set[str]
     route_ids: set[str]
+    shape_ids: set[str]
     service_dates: list[date]
 
 
@@ -186,9 +187,14 @@ def build_import_scope() -> GtfsImportScope:
             f"No active GTFS service_ids found for import dates: {service_dates}"
         )
 
+    trip_scope_columns = [
+        column
+        for column in ["trip_id", "service_id", "route_id", "shape_id"]
+        if column in read_existing_columns(trips_path)
+    ]
     trips_df = pd.read_csv(
         trips_path,
-        usecols=["trip_id", "service_id", "route_id"],
+        usecols=trip_scope_columns,
         low_memory=False,
     )
     scoped_trips_df = trips_df[trips_df["service_id"].astype(str).isin(service_ids)]
@@ -198,17 +204,27 @@ def build_import_scope() -> GtfsImportScope:
             f"No GTFS trips found for active service_ids: {sorted(service_ids)}"
         )
 
+    shape_ids: set[str] = set()
+    if "shape_id" in scoped_trips_df.columns:
+        shape_ids = {
+            str(shape_id)
+            for shape_id in scoped_trips_df["shape_id"].dropna().astype(str)
+            if str(shape_id).strip()
+        }
+
     logger.info(
-        "GTFS import scope: dates={}, service_ids={}, trips={}.",
+        "GTFS import scope: dates={}, service_ids={}, trips={}, shape_ids={}.",
         [service_date.isoformat() for service_date in service_dates],
         sorted(service_ids),
         len(scoped_trips_df),
+        len(shape_ids),
     )
 
     return GtfsImportScope(
         service_ids=set(scoped_trips_df["service_id"].astype(str)),
         trip_ids=set(scoped_trips_df["trip_id"].astype(str)),
         route_ids=set(scoped_trips_df["route_id"].astype(str)),
+        shape_ids=shape_ids,
         service_dates=service_dates,
     )
 
@@ -310,6 +326,64 @@ def load_stop_times_table(engine: Engine, scope: GtfsImportScope) -> None:
     logger.success("Loaded {} rows into {}.", total_rows, table_name)
 
 
+def load_shapes_table(engine: Engine, scope: GtfsImportScope) -> None:
+    file_name = "shapes.txt"
+    table_name = "gtfs_shapes"
+    path = settings.gtfs_path / file_name
+
+    if not path.exists():
+        logger.warning("Skipping {} import because file is missing.", file_name)
+        return
+
+    if not scope.shape_ids:
+        logger.warning("Skipping {} import because no trip shape_ids are in scope.", file_name)
+        return
+
+    logger.info(
+        "Loading {} into {} for {} shape_ids.",
+        file_name,
+        table_name,
+        len(scope.shape_ids),
+    )
+
+    usecols = get_available_usecols(file_name, path)
+    total_rows = 0
+    first_chunk = True
+
+    for chunk in pd.read_csv(
+        path,
+        usecols=usecols,
+        low_memory=False,
+        chunksize=settings.gtfs_shapes_read_chunksize,
+    ):
+        chunk = chunk[chunk["shape_id"].astype(str).isin(scope.shape_ids)]
+        if chunk.empty:
+            continue
+
+        chunk = chunk[
+            ["shape_id", "shape_pt_sequence", "shape_pt_lat", "shape_pt_lon"]
+        ]
+
+        chunk.to_sql(
+            table_name,
+            engine,
+            if_exists="replace" if first_chunk else "append",
+            index=False,
+            chunksize=settings.gtfs_sql_insert_chunksize,
+            dtype=GTFS_DTYPES.get(table_name),
+        )
+
+        total_rows += len(chunk)
+        first_chunk = False
+        logger.info("Loaded {} rows into {} so far.", total_rows, table_name)
+
+    if first_chunk:
+        logger.warning("No shape points matched the import scope.")
+        return
+
+    logger.success("Loaded {} rows into {}.", total_rows, table_name)
+
+
 def load_table(
     engine: Engine,
     file_name: str,
@@ -334,9 +408,22 @@ def create_segments_table(engine: Engine, scope: GtfsImportScope) -> None:
     trips_df = trips_df[trips_df["trip_id"].astype(str).isin(scope.trip_ids)]
 
     stop_time_chunks: list[pd.DataFrame] = []
+    stop_time_columns = [
+        column
+        for column in [
+            "trip_id",
+            "arrival_time",
+            "departure_time",
+            "stop_id",
+            "stop_sequence",
+            "shape_dist_traveled",
+        ]
+        if column in read_existing_columns(settings.gtfs_path / "stop_times.txt")
+    ]
+
     for chunk in pd.read_csv(
         settings.gtfs_path / "stop_times.txt",
-        usecols=["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence"],
+        usecols=stop_time_columns,
         low_memory=False,
         chunksize=settings.gtfs_stop_times_read_chunksize,
     ):
@@ -352,6 +439,14 @@ def create_segments_table(engine: Engine, scope: GtfsImportScope) -> None:
     stop_times_df["stop_id"] = stop_times_df["stop_id"].astype(str)
     stop_times_df = stop_times_df.sort_values(["trip_id", "stop_sequence"])
 
+    if "shape_dist_traveled" in stop_times_df.columns:
+        stop_times_df["shape_dist_traveled"] = pd.to_numeric(
+            stop_times_df["shape_dist_traveled"],
+            errors="coerce",
+        )
+    else:
+        stop_times_df["shape_dist_traveled"] = pd.NA
+
     grouped = stop_times_df.groupby("trip_id", sort=False)
     segments_df = pd.DataFrame(
         {
@@ -362,6 +457,8 @@ def create_segments_table(engine: Engine, scope: GtfsImportScope) -> None:
             "arrival_time": grouped["arrival_time"].shift(-1),
             "from_stop_sequence": stop_times_df["stop_sequence"],
             "to_stop_sequence": grouped["stop_sequence"].shift(-1),
+            "from_shape_dist_traveled": stop_times_df["shape_dist_traveled"],
+            "to_shape_dist_traveled": grouped["shape_dist_traveled"].shift(-1),
         }
     ).dropna(subset=["to_stop_id", "arrival_time", "to_stop_sequence"])
 
@@ -387,6 +484,8 @@ def create_segments_table(engine: Engine, scope: GtfsImportScope) -> None:
         "arrival_seconds",
         "from_stop_sequence",
         "to_stop_sequence",
+        "from_shape_dist_traveled",
+        "to_shape_dist_traveled",
     ]
 
     segments_df[columns].to_sql(
@@ -672,6 +771,20 @@ def create_indexes(engine: Engine) -> None:
             ON gtfs_segments(trip_id, from_stop_sequence);
             """,
         ),
+        (
+            "idx_gtfs_shapes_shape_sequence",
+            """
+            CREATE INDEX IF NOT EXISTS idx_gtfs_shapes_shape_sequence
+            ON gtfs_shapes(shape_id, shape_pt_sequence);
+            """,
+        ),
+        (
+            "idx_gtfs_trips_shape_id",
+            """
+            CREATE INDEX IF NOT EXISTS idx_gtfs_trips_shape_id
+            ON gtfs_trips(shape_id);
+            """,
+        ),
     ]
 
     if settings.gtfs_keep_stop_times and settings.gtfs_create_heavy_indexes:
@@ -758,6 +871,7 @@ def create_indexes(engine: Engine) -> None:
         conn.execute(text("ANALYZE gtfs_trips;"))
         conn.execute(text("ANALYZE gtfs_calendar;"))
         conn.execute(text("ANALYZE gtfs_segments;"))
+        conn.execute(text("ANALYZE gtfs_shapes;"))
 
     logger.success("Created GTFS indexes.")
 
@@ -801,7 +915,7 @@ def import_gtfs(engine: Engine) -> None:
     drop_gtfs_tables(engine)
 
     for file_name, table_name in GTFS_TABLES.items():
-        if file_name == "segments":
+        if file_name in {"segments", "shapes.txt"}:
             continue
 
         if file_name == "stop_times.txt" and not settings.gtfs_keep_stop_times:
@@ -817,6 +931,7 @@ def import_gtfs(engine: Engine) -> None:
                 f"Failed to import {file_name} into {table_name}"
             ) from exc
 
+    load_shapes_table(engine, scope)
     create_segments_table(engine, scope)
     append_pseudo_metro(engine, scope)
 

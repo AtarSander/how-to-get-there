@@ -12,6 +12,7 @@ def test_generate_pseudo_metro_data_adds_m1_m2_routes_and_segments() -> None:
             service_ids={"weekday"},
             trip_ids={"source-trip"},
             route_ids={"source-route"},
+            shape_ids=set(),
             service_dates=[date(2026, 5, 14)],
         )
     )
