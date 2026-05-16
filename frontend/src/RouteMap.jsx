@@ -8,7 +8,11 @@ import {
   useMap,
 } from "react-leaflet";
 import { useLanguage } from "./language/LanguageContext";
-import { LINE_KIND_COLORS, MODE_LINE_COLORS } from "./mapColors";
+import {
+  LINE_KIND_COLORS,
+  MARKER_KIND_COLORS,
+  MODE_LINE_COLORS,
+} from "./mapColors";
 
 const WARSAW_CENTER = [52.2297, 21.0122];
 const DEFAULT_ZOOM = 11;
@@ -94,8 +98,6 @@ export default function RouteMap({
 
         const isActive = !activeMode || activeMode === option.mode;
         const modeColor = MODE_LINE_COLORS[option.mode] ?? "#90caf9";
-        const showParkAndRideAsSolidBlue =
-          !activeMode && option.mode === "park_and_ride";
 
         return (
           <Fragment key={option.mode}>
@@ -105,34 +107,41 @@ export default function RouteMap({
                 positions={line.positions}
                 pathOptions={{
                   color: isActive
-                    ? showParkAndRideAsSolidBlue
-                      ? modeColor
-                      : LINE_KIND_COLORS[line.kind] ?? modeColor
+                    ? LINE_KIND_COLORS[line.kind] ?? modeColor
                     : "#546e7a",
                   weight: isActive ? 5 : 3,
                   opacity: isActive ? 0.9 : 0.25,
                   dashArray:
-                    isActive && !showParkAndRideAsSolidBlue && line.kind === "walk"
+                    isActive && line.kind === "walk"
                       ? "6 8"
                       : undefined,
                 }}
               />
             ))}
-            {(option.map.markers ?? []).map((marker) => (
-              <CircleMarker
-                key={`${option.mode}-${marker.kind}-${marker.label}`}
-                center={[marker.lat, marker.lon]}
-                radius={7}
-                pathOptions={{
-                  color: modeColor,
-                  fillColor: modeColor,
-                  fillOpacity: isActive ? 0.9 : 0.35,
-                  weight: 2,
-                }}
-              >
-                <Tooltip>{marker.label}</Tooltip>
-              </CircleMarker>
-            ))}
+            {(option.map.markers ?? []).map((marker, index) => {
+              const markerColors = MARKER_KIND_COLORS[marker.kind] ?? {
+                color: modeColor,
+                fillColor: modeColor,
+              };
+              const isTransitStop = marker.kind === "transit_stop";
+
+              return (
+                <CircleMarker
+                  key={`${option.mode}-${marker.kind}-${marker.label}-${index}`}
+                  center={[marker.lat, marker.lon]}
+                  radius={isTransitStop ? 5 : 7}
+                  pathOptions={{
+                    color: markerColors.color,
+                    fillColor: markerColors.fillColor,
+                    fillOpacity: isActive ? 0.92 : 0.35,
+                    opacity: isActive ? 1 : 0.35,
+                    weight: isTransitStop ? 2.5 : 2,
+                  }}
+                >
+                  <Tooltip>{marker.label}</Tooltip>
+                </CircleMarker>
+              );
+            })}
           </Fragment>
         );
       })}

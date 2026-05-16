@@ -7,5 +7,16 @@ export const MODE_LINE_COLORS = {
 export const LINE_KIND_COLORS = {
   car: "#ed9b3a",
   transit: "#4db88a",
-  walk: "#b8c5d8",
+  walk: "#0f6b3f",
+};
+
+export const MARKER_KIND_COLORS = {
+  parking: {
+    color: "#dbeafe",
+    fillColor: "#6b9fff",
+  },
+  transit_stop: {
+    color: "#e8fff4",
+    fillColor: "#4db88a",
+  },
 };
