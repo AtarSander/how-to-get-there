@@ -26,6 +26,7 @@ def create_app() -> Flask:
                 "name": "SPDB API",
                 "health": "/api/health",
                 "compare": "/api/routes/compare",
+                "geocode": "/api/geocode/search",
             }
         )
 

@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 
 from api.serialization import serialize_route_comparison
 from database.connection import get_engine
+from services.geocoding import search_addresses
 from services.route_comparison import compare_routes
 
 api_bp = Blueprint("api", __name__)
@@ -42,6 +43,23 @@ def _parse_departure_at(payload: dict) -> datetime:
 @api_bp.get("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@api_bp.get("/geocode/search")
+def geocode_search():
+    query = request.args.get("q", "")
+    lang = request.args.get("lang", "pl")
+    if not isinstance(query, str):
+        return jsonify({"error": "q must be a string."}), 400
+    if lang not in {"pl", "en"}:
+        lang = "pl"
+
+    try:
+        results = search_addresses(query, lang=lang)
+    except Exception as exc:
+        return jsonify({"error": f"Address search failed: {exc}"}), 502
+
+    return jsonify({"results": [item.as_dict() for item in results]})
 
 
 @api_bp.post("/routes/compare")
