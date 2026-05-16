@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 from database.queries import ConnectionSegment, DirectConnectionCandidate, NearbyStop
+from services.car_routing import GeoPoint
 from services.public_transport import (
     build_journey_from_candidate,
     build_journey_from_segments,
@@ -51,8 +52,10 @@ def test_build_journey_from_segments_counts_transfers() -> None:
 
     journey = build_journey_from_segments(
         requested_departure_at=requested_departure,
-        origin_stop=NearbyStop("A", "Start", 0.0, 0.0, 80.0),
-        destination_stop=NearbyStop("D", "End", 0.0, 0.0, 60.0),
+        origin_point=GeoPoint(52.0, 21.0),
+        destination_point=GeoPoint(52.03, 21.03),
+        origin_stop=NearbyStop("A", "Start", 52.0, 21.0, 80.0),
+        destination_stop=NearbyStop("D", "End", 52.03, 21.03, 60.0),
         segments=[
             ConnectionSegment(
                 trip_id="trip-1",
@@ -67,6 +70,10 @@ def test_build_journey_from_segments_counts_transfers() -> None:
                 arrival_time="08:10:00",
                 from_stop_sequence=1,
                 to_stop_sequence=2,
+                from_lat=52.0,
+                from_lon=21.0,
+                to_lat=52.01,
+                to_lon=21.01,
             ),
             ConnectionSegment(
                 trip_id="trip-1",
@@ -81,6 +88,10 @@ def test_build_journey_from_segments_counts_transfers() -> None:
                 arrival_time="08:16:00",
                 from_stop_sequence=2,
                 to_stop_sequence=3,
+                from_lat=52.01,
+                from_lon=21.01,
+                to_lat=52.02,
+                to_lon=21.02,
             ),
             ConnectionSegment(
                 trip_id="trip-2",
@@ -95,6 +106,10 @@ def test_build_journey_from_segments_counts_transfers() -> None:
                 arrival_time="08:28:00",
                 from_stop_sequence=10,
                 to_stop_sequence=11,
+                from_lat=52.02,
+                from_lon=21.02,
+                to_lat=52.03,
+                to_lon=21.03,
             ),
         ],
     )
@@ -139,6 +154,10 @@ def test_find_public_transport_connections_supports_transfer_paths(
                 arrival_time="08:10:00",
                 from_stop_sequence=1,
                 to_stop_sequence=2,
+                from_lat=52.0,
+                from_lon=21.0,
+                to_lat=52.01,
+                to_lon=21.01,
             ),
         ],
         [
@@ -155,6 +174,10 @@ def test_find_public_transport_connections_supports_transfer_paths(
                 arrival_time="08:17:00",
                 from_stop_sequence=10,
                 to_stop_sequence=11,
+                from_lat=52.01,
+                from_lon=21.01,
+                to_lat=52.02,
+                to_lon=21.02,
             ),
         ],
         [],

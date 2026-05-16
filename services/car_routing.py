@@ -44,6 +44,10 @@ class CarRouteSegment:
     road_name: str | None
     distance_m: float
     duration_seconds: int
+    from_lat: float
+    from_lon: float
+    to_lat: float
+    to_lon: float
 
 
 @dataclass(frozen=True)
@@ -285,6 +289,10 @@ def find_car_route(
                 road_name=move.edge.road_name,
                 distance_m=move.edge.length_m,
                 duration_seconds=duration_seconds,
+                from_lat=move.from_point.lat,
+                from_lon=move.from_point.lon,
+                to_lat=move.to_point.lat,
+                to_lon=move.to_point.lon,
             )
         )
 

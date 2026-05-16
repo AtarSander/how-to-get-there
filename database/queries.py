@@ -67,6 +67,10 @@ class ConnectionSegment:
     arrival_time: str
     from_stop_sequence: int
     to_stop_sequence: int
+    from_lat: float
+    from_lon: float
+    to_lat: float
+    to_lon: float
 
 
 @dataclass(frozen=True)
@@ -309,8 +313,12 @@ def fetch_connection_segments(
             trip_headsign,
             from_stop_id,
             from_stops.stop_name AS from_stop_name,
+            from_stops.stop_lat AS from_stop_lat,
+            from_stops.stop_lon AS from_stop_lon,
             to_stop_id,
             to_stops.stop_name AS to_stop_name,
+            to_stops.stop_lat AS to_stop_lat,
+            to_stops.stop_lon AS to_stop_lon,
             departure_seconds,
             arrival_seconds,
             from_stop_sequence,
@@ -363,6 +371,10 @@ def fetch_connection_segments(
                 arrival_time=_seconds_to_gtfs_time(row["arrival_seconds"]),
                 from_stop_sequence=int(row["from_stop_sequence"]),
                 to_stop_sequence=int(row["to_stop_sequence"]),
+                from_lat=float(row["from_stop_lat"]),
+                from_lon=float(row["from_stop_lon"]),
+                to_lat=float(row["to_stop_lat"]),
+                to_lon=float(row["to_stop_lon"]),
             )
             for row in rows
         ]
@@ -475,8 +487,12 @@ def fetch_reachable_connection_segments(
             trips.trip_headsign,
             segments.from_stop_id,
             from_stops.stop_name AS from_stop_name,
+            from_stops.stop_lat AS from_stop_lat,
+            from_stops.stop_lon AS from_stop_lon,
             segments.to_stop_id,
             to_stops.stop_name AS to_stop_name,
+            to_stops.stop_lat AS to_stop_lat,
+            to_stops.stop_lon AS to_stop_lon,
             segments.departure_seconds,
             segments.arrival_seconds,
             segments.from_stop_sequence,
@@ -522,6 +538,10 @@ def fetch_reachable_connection_segments(
                 arrival_time=_seconds_to_gtfs_time(row["arrival_seconds"]),
                 from_stop_sequence=int(row["from_stop_sequence"]),
                 to_stop_sequence=int(row["to_stop_sequence"]),
+                from_lat=float(row["from_stop_lat"]),
+                from_lon=float(row["from_stop_lon"]),
+                to_lat=float(row["to_stop_lat"]),
+                to_lon=float(row["to_stop_lon"]),
             )
             for row in rows
         ]

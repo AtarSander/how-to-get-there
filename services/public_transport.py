@@ -6,6 +6,7 @@ from math import ceil
 from typing import TYPE_CHECKING, Any
 
 from config.settings import settings
+from services.car_routing import GeoPoint
 from database.queries import (
     ConnectionSegment,
     DirectConnectionCandidate,
@@ -32,6 +33,10 @@ class JourneyLeg:
     duration_minutes: int
     route_name: str | None = None
     trip_headsign: str | None = None
+    from_lat: float | None = None
+    from_lon: float | None = None
+    to_lat: float | None = None
+    to_lon: float | None = None
 
 
 @dataclass(frozen=True)
@@ -325,6 +330,10 @@ def compress_segments_into_rides(
                 arrival_time=segment.arrival_time,
                 from_stop_sequence=last_ride.from_stop_sequence,
                 to_stop_sequence=segment.to_stop_sequence,
+                from_lat=last_ride.from_lat,
+                from_lon=last_ride.from_lon,
+                to_lat=segment.to_lat,
+                to_lon=segment.to_lon,
             )
             continue
 
@@ -335,6 +344,8 @@ def compress_segments_into_rides(
 
 def build_journey_from_segments(
     requested_departure_at: datetime,
+    origin_point: GeoPoint,
+    destination_point: GeoPoint,
     origin_stop: NearbyStop,
     destination_stop: NearbyStop,
     segments: list[ConnectionSegment],
@@ -369,6 +380,10 @@ def build_journey_from_segments(
             departure_at=requested_departure_at,
             arrival_at=requested_departure_at + timedelta(seconds=access_walk_seconds),
             duration_minutes=ceil(access_walk_seconds / 60),
+            from_lat=origin_point.lat,
+            from_lon=origin_point.lon,
+            to_lat=origin_stop.lat,
+            to_lon=origin_stop.lon,
         )
     ]
 
@@ -390,6 +405,10 @@ def build_journey_from_segments(
                 duration_minutes=duration_minutes,
                 route_name=ride.route_short_name or ride.route_id,
                 trip_headsign=ride.trip_headsign,
+                from_lat=ride.from_lat,
+                from_lon=ride.from_lon,
+                to_lat=ride.to_lat,
+                to_lon=ride.to_lon,
             )
         )
 
@@ -406,6 +425,10 @@ def build_journey_from_segments(
             departure_at=final_vehicle_arrival_at,
             arrival_at=final_arrival_at,
             duration_minutes=ceil(egress_walk_seconds / 60),
+            from_lat=destination_stop.lat,
+            from_lon=destination_stop.lon,
+            to_lat=destination_point.lat,
+            to_lon=destination_point.lon,
         )
     )
 
@@ -563,6 +586,8 @@ def find_public_transport_connections(
 
             journey = build_journey_from_segments(
                 requested_departure_at=requested_departure_at,
+                origin_point=GeoPoint(origin_lat, origin_lon),
+                destination_point=GeoPoint(destination_lat, destination_lon),
                 origin_stop=origin_stop_by_id[first_origin_stop_id],
                 destination_stop=destination_stop,
                 segments=ride_segments,
