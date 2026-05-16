@@ -9,7 +9,6 @@ import {
   Box,
   Button,
   Card,
-  CardActionArea,
   CardContent,
   Chip,
   CircularProgress,
@@ -22,8 +21,14 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
+import AddressSearch from "./AddressSearch";
 import { compareRoutes } from "./api";
 import { useLanguage } from "./language/LanguageContext";
+import {
+  buildJourneyTimeline,
+  collectDisplayLegs,
+  formatLegModeLabel,
+} from "./journeyDisplay";
 import {
   getOptionDisplayLabel,
   getOptionReason,
@@ -70,9 +75,70 @@ function formatDistance(meters) {
   return `${Math.round(meters)} m`;
 }
 
-function getPublicTransportLegs(option) {
-  const details = option.details?.public_transport;
-  return details?.legs ?? null;
+function JourneyTimeline({ option }) {
+  const { locale, t } = useLanguage();
+  const legs = collectDisplayLegs(option);
+  if (!legs?.length) {
+    return null;
+  }
+
+  const timeline = buildJourneyTimeline(legs);
+
+  return (
+    <Box component="ul" sx={{ mt: 2, mb: 0, pl: 0, listStyle: "none" }}>
+      {timeline.map((item) => {
+        if (item.type === "transfer") {
+          return (
+            <Box
+              component="li"
+              key={`transfer-${item.stopName}-${item.arrivalAt}`}
+              sx={{
+                py: 0.75,
+                px: 1,
+                mb: 0.75,
+                borderRadius: 1,
+                bgcolor: "action.hover",
+                borderLeft: "3px solid",
+                borderColor: "warning.main",
+              }}
+            >
+              <Typography variant="body2" fontWeight={600} color="text.primary">
+                {t("leg.transferAt", { stop: translateLegPlaceName(item.stopName, t) })}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block">
+                {t("leg.transferWait", {
+                  arrival: formatTime(item.arrivalAt, locale),
+                  departure: formatTime(item.departureAt, locale),
+                  minutes: item.waitMinutes ?? 0,
+                })}
+              </Typography>
+            </Box>
+          );
+        }
+
+        const { leg } = item;
+        const modeLabel = formatLegModeLabel(leg, t);
+
+        return (
+          <Box component="li" key={`leg-${item.index}-${leg.departure_at}`} sx={{ mb: 0.75 }}>
+            <Typography variant="body2" color="text.primary">
+              <Box component="span" sx={{ fontFamily: '"IBM Plex Mono", monospace', mr: 1 }}>
+                {formatTime(leg.departure_at, locale)}–{formatTime(leg.arrival_at, locale)}
+              </Box>
+              {translateLegPlaceName(leg.from_name, t)} →{" "}
+              {translateLegPlaceName(leg.to_name, t)}
+            </Typography>
+            {modeLabel && (
+              <Typography variant="caption" color="text.secondary" display="block">
+                {modeLabel}
+                {leg.trip_headsign ? ` · ${leg.trip_headsign}` : ""}
+              </Typography>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
 }
 
 function LanguageSwitcher() {
@@ -99,18 +165,19 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
   const { locale, t } = useLanguage();
   const Icon = MODE_ICONS[option.mode] ?? DirectionsTransitIcon;
   const color = MODE_COLORS[option.mode] ?? "default";
-  const legs = getPublicTransportLegs(option);
   const label = getOptionDisplayLabel(option, t);
   const reason = getOptionReason(option, t);
 
   return (
     <Card
       variant="outlined"
+      onClick={() => option.available && onSelect(option.mode)}
       sx={{
         borderLeftWidth: 4,
         borderLeftStyle: "solid",
         borderLeftColor: `${color}.main`,
         opacity: option.available ? 1 : 0.7,
+        cursor: option.available ? "pointer" : "default",
         outline: (theme) => {
           if (selected) {
             return `2px solid ${theme.palette.primary.main}`;
@@ -122,8 +189,7 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
         },
       }}
     >
-      <CardActionArea onClick={() => onSelect(option.mode)} disabled={!option.available}>
-        <CardContent>
+      <CardContent>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <Icon color={color} fontSize="small" />
             <Typography variant="subtitle1" fontWeight={600}>
@@ -182,25 +248,14 @@ function OptionCard({ option, highlighted, selected, onSelect }) {
                 </Grid>
               </Grid>
 
-              {legs && legs.length > 0 && (
-                <Box component="ol" sx={{ mt: 2, mb: 0, pl: 2.5, color: "text.secondary" }}>
-                  {legs.map((leg, index) => (
-                    <Typography component="li" variant="body2" key={`${leg.from_name}-${index}`}>
-                      {translateLegPlaceName(leg.from_name, t)} →{" "}
-                      {translateLegPlaceName(leg.to_name, t)}
-                      {leg.route_name ? ` (${leg.route_name})` : ""}
-                    </Typography>
-                  ))}
-                </Box>
-              )}
+              <JourneyTimeline option={option} />
             </>
           ) : (
             <Typography variant="body2" color="text.secondary">
               {reason}
             </Typography>
           )}
-        </CardContent>
-      </CardActionArea>
+      </CardContent>
     </Card>
   );
 }
@@ -225,8 +280,14 @@ function PresetChips({ target, onSelect }) {
 
 export default function App() {
   const { t } = useLanguage();
-  const [origin, setOrigin] = useState({ ...WARSAW_PRESETS.centrum });
-  const [destination, setDestination] = useState({ ...WARSAW_PRESETS.mokotow });
+  const [origin, setOrigin] = useState({
+    ...WARSAW_PRESETS.centrum,
+    label: "",
+  });
+  const [destination, setDestination] = useState({
+    ...WARSAW_PRESETS.mokotow,
+    label: "",
+  });
   const [pickTarget, setPickTarget] = useState("origin");
   const [departureAt, setDepartureAt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -243,7 +304,7 @@ export default function App() {
   }, []);
 
   function handleMapClick(lat, lon, target) {
-    const point = { lat, lon };
+    const point = { lat, lon, label: "" };
     if (target === "origin") {
       setOrigin(point);
     } else {
@@ -279,10 +340,11 @@ export default function App() {
 
   function applyPreset(presetKey, target) {
     const point = WARSAW_PRESETS[presetKey];
+    const presetLabel = t(`presets.${presetKey}`);
     if (target === "origin") {
-      setOrigin({ lat: point.lat, lon: point.lon });
+      setOrigin({ lat: point.lat, lon: point.lon, label: presetLabel });
     } else {
-      setDestination({ lat: point.lat, lon: point.lon });
+      setDestination({ lat: point.lat, lon: point.lon, label: presetLabel });
     }
   }
 
@@ -338,6 +400,21 @@ export default function App() {
                 {t("form.mapHint")}
               </Typography>
 
+              <Stack spacing={1.5} sx={{ mb: 2 }}>
+                <AddressSearch
+                  label={t("addressSearch.origin")}
+                  value={origin}
+                  onChange={setOrigin}
+                  icon={PlaceIcon}
+                />
+                <AddressSearch
+                  label={t("addressSearch.destination")}
+                  value={destination}
+                  onChange={setDestination}
+                  icon={FlagIcon}
+                />
+              </Stack>
+
               <ToggleButtonGroup
                 exclusive
                 fullWidth
@@ -358,21 +435,32 @@ export default function App() {
 
               <Stack spacing={0.5} sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary">
-                  {t("form.coordsOrigin")}: {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}
+                  {t("form.coordsOrigin")}:{" "}
+                  {origin.label || `${origin.lat.toFixed(4)}, ${origin.lon.toFixed(4)}`}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {t("form.coordsDestination")}: {destination.lat.toFixed(4)},{" "}
-                  {destination.lon.toFixed(4)}
+                  {t("form.coordsDestination")}:{" "}
+                  {destination.label ||
+                    `${destination.lat.toFixed(4)}, ${destination.lon.toFixed(4)}`}
                 </Typography>
               </Stack>
 
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
                 {t("form.quickPresets")}
               </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.25 }}>
+                {t("form.presetForOrigin")}
+              </Typography>
               <PresetChips target="origin" onSelect={applyPreset} />
-              <Box sx={{ mt: 1 }}>
-                <PresetChips target="destination" onSelect={applyPreset} />
-              </Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ mt: 1, mb: 0.25 }}
+              >
+                {t("form.presetForDestination")}
+              </Typography>
+              <PresetChips target="destination" onSelect={applyPreset} />
 
               <Divider sx={{ my: 2.5 }} />
 

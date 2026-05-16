@@ -76,12 +76,14 @@ class Settings(BaseSettings):
     flask_debug: bool = True
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    geocoding_user_agent: str = "how-to-get-there/0.1 (Warsaw route planner)"
+    geocoding_contact_email: str | None = None
+    geocoding_timeout_seconds: int = 10
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [
-            origin.strip()
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
 
 

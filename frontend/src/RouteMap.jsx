@@ -30,7 +30,14 @@ function FitBounds({ positions }) {
   return null;
 }
 
-function collectAllPositions(origin, destination, result, activeMode) {
+function resolveMapMode(result, activeMode) {
+  if (activeMode) {
+    return activeMode;
+  }
+  return result?.best_option?.mode ?? null;
+}
+
+function collectAllPositions(origin, destination, result, mapMode) {
   const positions = [];
   if (origin) {
     positions.push([origin.lat, origin.lon]);
@@ -47,7 +54,7 @@ function collectAllPositions(origin, destination, result, activeMode) {
     if (!option.available || !option.map) {
       continue;
     }
-    if (activeMode && option.mode !== activeMode) {
+    if (mapMode && option.mode !== mapMode) {
       continue;
     }
     for (const line of option.map.lines) {
@@ -72,9 +79,14 @@ export default function RouteMap({
   activeMode,
 }) {
   const { t } = useLanguage();
+  const mapMode = useMemo(
+    () => resolveMapMode(result, activeMode),
+    [result, activeMode],
+  );
+
   const fitPositions = useMemo(
-    () => collectAllPositions(origin, destination, result, activeMode),
-    [origin, destination, result, activeMode],
+    () => collectAllPositions(origin, destination, result, mapMode),
+    [origin, destination, result, mapMode],
   );
 
   return (
@@ -92,11 +104,10 @@ export default function RouteMap({
       <FitBounds positions={fitPositions} />
 
       {result?.options.map((option) => {
-        if (!option.available || !option.map) {
+        if (!option.available || !option.map || (mapMode && option.mode !== mapMode)) {
           return null;
         }
 
-        const isActive = !activeMode || activeMode === option.mode;
         const modeColor = MODE_LINE_COLORS[option.mode] ?? "#90caf9";
 
         return (
@@ -106,15 +117,10 @@ export default function RouteMap({
                 key={`${option.mode}-${line.kind}-${index}`}
                 positions={line.positions}
                 pathOptions={{
-                  color: isActive
-                    ? LINE_KIND_COLORS[line.kind] ?? modeColor
-                    : "#546e7a",
-                  weight: isActive ? 5 : 3,
-                  opacity: isActive ? 0.9 : 0.25,
-                  dashArray:
-                    isActive && line.kind === "walk"
-                      ? "6 8"
-                      : undefined,
+                  color: LINE_KIND_COLORS[line.kind] ?? modeColor,
+                  weight: 5,
+                  opacity: 0.9,
+                  dashArray: line.kind === "walk" ? "6 8" : undefined,
                 }}
               />
             ))}
@@ -133,8 +139,8 @@ export default function RouteMap({
                   pathOptions={{
                     color: markerColors.color,
                     fillColor: markerColors.fillColor,
-                    fillOpacity: isActive ? 0.92 : 0.35,
-                    opacity: isActive ? 1 : 0.35,
+                    fillOpacity: 0.92,
+                    opacity: 1,
                     weight: isTransitStop ? 2.5 : 2,
                   }}
                 >
