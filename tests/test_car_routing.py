@@ -42,6 +42,47 @@ def test_edge_duration_uses_hourly_traffic_multiplier() -> None:
     assert duration_seconds == 90
 
 
+def test_edge_duration_uses_directional_traffic_multiplier() -> None:
+    center = GeoPoint(52.0, 21.0)
+    toward_center = RoadEdge(
+        edge_id="toward",
+        source="A",
+        target="B",
+        source_point=GeoPoint(52.0, 21.02),
+        target_point=GeoPoint(52.0, 21.01),
+        length_m=1_000,
+        max_speed_kmh=60,
+    )
+    away_from_center = RoadEdge(
+        edge_id="away",
+        source="B",
+        target="A",
+        source_point=GeoPoint(52.0, 21.01),
+        target_point=GeoPoint(52.0, 21.02),
+        length_m=1_000,
+        max_speed_kmh=60,
+    )
+    profile = TrafficProfile(
+        hourly_multipliers={8: 1.1},
+        directional_hourly_multipliers={
+            1: {8: 2.0},
+            2: {8: 1.25},
+        },
+        center=center,
+    )
+
+    assert edge_duration_seconds(
+        toward_center,
+        datetime(2026, 5, 13, 8, 0, 0),
+        profile,
+    ) == 120
+    assert edge_duration_seconds(
+        away_from_center,
+        datetime(2026, 5, 13, 8, 0, 0),
+        profile,
+    ) == 75
+
+
 def test_find_car_route_chooses_fastest_path_not_shortest_path() -> None:
     edges = [
         RoadEdge(

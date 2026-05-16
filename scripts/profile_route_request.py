@@ -33,6 +33,7 @@ from services.route_comparison import (
     option_from_park_and_ride,
     option_from_public_transport,
 )
+from services.traffic_profiles import load_zdm_apr_traffic_profile
 
 
 DEFAULT_CASES = {
@@ -44,6 +45,7 @@ DEFAULT_CASES = {
 
 TOP_LEVEL_COMPONENTS = (
     "road_edges_load",
+    "traffic_profile_load",
     "car_route",
     "public_transport",
     "park_and_ride",
@@ -237,6 +239,10 @@ def profile_route_case(
                 len(resolved_road_edges) if resolved_road_edges is not None else 0
             )
 
+        with profiler.time("traffic_profile_load"):
+            traffic_profile = load_zdm_apr_traffic_profile(engine)
+            metadata["traffic_profile_loaded"] = traffic_profile is not None
+
         with profiler.time("car_route"):
             car_route = (
                 find_car_route(
@@ -244,13 +250,14 @@ def profile_route_case(
                     origin,
                     destination,
                     departure_at,
-                    None,
+                    traffic_profile,
                 )
                 if resolved_road_edges
                 else estimate_direct_car_route(
                     origin=origin,
                     destination=destination,
                     departure_at=departure_at,
+                    traffic_profile=traffic_profile,
                 )
             )
         if car_route is None:
@@ -304,7 +311,7 @@ def profile_route_case(
                 destination_lon=route_case.destination_lon,
                 departure_at=departure_at,
                 road_edges=resolved_road_edges,
-                traffic_profile=None,
+                traffic_profile=traffic_profile,
             )
         metadata["park_and_ride_result_count"] = len(park_and_ride_routes)
         if park_and_ride_routes:
@@ -401,6 +408,7 @@ def print_case_report(
         f"road_edges={metadata.get('road_edge_count')}, "
         f"pt_results={metadata.get('public_transport_result_count')}, "
         f"pr_results={metadata.get('park_and_ride_result_count')}, "
+        f"traffic_profile={metadata.get('traffic_profile_loaded')}, "
         f"best={metadata.get('best_option')}"
     )
     if "road_edges_error" in metadata:

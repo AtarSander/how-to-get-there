@@ -31,8 +31,22 @@ class RoadEdge:
 class TrafficProfile:
     hourly_multipliers: dict[int, float]
     default_multiplier: float = 1.0
+    directional_hourly_multipliers: dict[int, dict[int, float]] | None = None
+    center: GeoPoint | None = None
 
-    def multiplier_at(self, when: datetime) -> float:
+    def multiplier_at(self, when: datetime, edge: RoadEdge | None = None) -> float:
+        if (
+            edge is not None
+            and self.directional_hourly_multipliers is not None
+            and self.center is not None
+        ):
+            direction = edge_direction_toward_center(edge, self.center)
+            directional_multipliers = self.directional_hourly_multipliers.get(
+                direction,
+                {},
+            )
+            return directional_multipliers.get(when.hour, self.default_multiplier)
+
         return self.hourly_multipliers.get(when.hour, self.default_multiplier)
 
 
@@ -94,6 +108,12 @@ def haversine_distance_m(first: GeoPoint, second: GeoPoint) -> float:
     return 2 * settings.earth_radius_m * asin(sqrt(value))
 
 
+def edge_direction_toward_center(edge: RoadEdge, center: GeoPoint) -> int:
+    source_distance = haversine_distance_m(edge.source_point, center)
+    target_distance = haversine_distance_m(edge.target_point, center)
+    return 1 if target_distance <= source_distance else 2
+
+
 def walking_speed_mps() -> float:
     return settings.public_transport_walking_speed_mps
 
@@ -120,7 +140,7 @@ def edge_duration_seconds(
         return ceil(edge_base_duration_seconds(edge, speed_mps=speed_mps))
 
     multiplier = (
-        traffic_profile.multiplier_at(departure_at)
+        traffic_profile.multiplier_at(departure_at, edge=edge)
         if traffic_profile is not None
         else 1.0
     )
