@@ -22,6 +22,7 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
+import AddressSearch from "./AddressSearch";
 import { compareRoutes } from "./api";
 import { useLanguage } from "./language/LanguageContext";
 import {
@@ -225,8 +226,14 @@ function PresetChips({ target, onSelect }) {
 
 export default function App() {
   const { t } = useLanguage();
-  const [origin, setOrigin] = useState({ ...WARSAW_PRESETS.centrum });
-  const [destination, setDestination] = useState({ ...WARSAW_PRESETS.mokotow });
+  const [origin, setOrigin] = useState({
+    ...WARSAW_PRESETS.centrum,
+    label: "",
+  });
+  const [destination, setDestination] = useState({
+    ...WARSAW_PRESETS.mokotow,
+    label: "",
+  });
   const [pickTarget, setPickTarget] = useState("origin");
   const [departureAt, setDepartureAt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -243,7 +250,7 @@ export default function App() {
   }, []);
 
   function handleMapClick(lat, lon, target) {
-    const point = { lat, lon };
+    const point = { lat, lon, label: "" };
     if (target === "origin") {
       setOrigin(point);
     } else {
@@ -279,10 +286,11 @@ export default function App() {
 
   function applyPreset(presetKey, target) {
     const point = WARSAW_PRESETS[presetKey];
+    const presetLabel = t(`presets.${presetKey}`);
     if (target === "origin") {
-      setOrigin({ lat: point.lat, lon: point.lon });
+      setOrigin({ lat: point.lat, lon: point.lon, label: presetLabel });
     } else {
-      setDestination({ lat: point.lat, lon: point.lon });
+      setDestination({ lat: point.lat, lon: point.lon, label: presetLabel });
     }
   }
 
@@ -338,6 +346,21 @@ export default function App() {
                 {t("form.mapHint")}
               </Typography>
 
+              <Stack spacing={1.5} sx={{ mb: 2 }}>
+                <AddressSearch
+                  label={t("addressSearch.origin")}
+                  value={origin}
+                  onChange={setOrigin}
+                  icon={PlaceIcon}
+                />
+                <AddressSearch
+                  label={t("addressSearch.destination")}
+                  value={destination}
+                  onChange={setDestination}
+                  icon={FlagIcon}
+                />
+              </Stack>
+
               <ToggleButtonGroup
                 exclusive
                 fullWidth
@@ -358,11 +381,13 @@ export default function App() {
 
               <Stack spacing={0.5} sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary">
-                  {t("form.coordsOrigin")}: {origin.lat.toFixed(4)}, {origin.lon.toFixed(4)}
+                  {t("form.coordsOrigin")}:{" "}
+                  {origin.label || `${origin.lat.toFixed(4)}, ${origin.lon.toFixed(4)}`}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {t("form.coordsDestination")}: {destination.lat.toFixed(4)},{" "}
-                  {destination.lon.toFixed(4)}
+                  {t("form.coordsDestination")}:{" "}
+                  {destination.label ||
+                    `${destination.lat.toFixed(4)}, ${destination.lon.toFixed(4)}`}
                 </Typography>
               </Stack>
 

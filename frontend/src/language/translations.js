@@ -4,7 +4,7 @@ export const translations = {
       overline: "Warszawa · SPDB",
       title: "Jak tam dojechać?",
       subtitle:
-        "Kliknij mapę, aby ustawić start i cel. Porównaj samochód, komunikację miejską i Park & Ride.",
+        "Wyszukaj adres lub kliknij mapę, aby ustawić start i cel. Porównaj samochód, komunikację miejską i Park & Ride.",
     },
     locale: {
       pl: "Polski",
@@ -14,11 +14,18 @@ export const translations = {
       start: "Start",
       destination: "Cel",
     },
+    addressSearch: {
+      origin: "Adres startu",
+      destination: "Adres celu",
+      typeToSearch: "Wpisz co najmniej 3 znaki…",
+      noResults: "Brak wyników",
+      unknownError: "Nie udało się wyszukać adresu.",
+    },
     form: {
       route: "Trasa",
-      mapHint: "Wybierz, co ustawiasz na mapie, i kliknij punkt.",
-      pickOrigin: "Start",
-      pickDestination: "Cel",
+      mapHint: "Wyszukaj adres poniżej albo wybierz punkt na mapie.",
+      pickOrigin: "Start na mapie",
+      pickDestination: "Cel na mapie",
       coordsOrigin: "Start",
       coordsDestination: "Cel",
       quickPresets: "Szybkie presety",
@@ -30,7 +37,7 @@ export const translations = {
     results: {
       title: "Wyniki",
       showAllRoutes: "Pokaż wszystkie trasy",
-      emptyHint: "Ustaw start i cel na mapie, potem uruchom porównanie.",
+      emptyHint: "Ustaw start i cel (wyszukiwarka lub mapa), potem uruchom porównanie.",
     },
     option: {
       fastest: "Najszybsza",
@@ -67,7 +74,7 @@ export const translations = {
       overline: "Warsaw · SPDB",
       title: "How to get there?",
       subtitle:
-        "Click the map to set start and destination. Compare car, public transport, and Park & Ride.",
+        "Search for an address or click the map to set start and destination. Compare car, public transport, and Park & Ride.",
     },
     locale: {
       pl: "Polish",
@@ -77,11 +84,18 @@ export const translations = {
       start: "Start",
       destination: "Destination",
     },
+    addressSearch: {
+      origin: "Start address",
+      destination: "Destination address",
+      typeToSearch: "Type at least 3 characters…",
+      noResults: "No results",
+      unknownError: "Address search failed.",
+    },
     form: {
       route: "Route",
-      mapHint: "Choose what you set on the map, then click a point.",
-      pickOrigin: "Start",
-      pickDestination: "Destination",
+      mapHint: "Search for an address below or pick a point on the map.",
+      pickOrigin: "Set start on map",
+      pickDestination: "Set destination on map",
       coordsOrigin: "Start",
       coordsDestination: "Destination",
       quickPresets: "Quick presets",
@@ -93,7 +107,7 @@ export const translations = {
     results: {
       title: "Results",
       showAllRoutes: "Show all routes",
-      emptyHint: "Set start and destination on the map, then run comparison.",
+      emptyHint: "Set start and destination (search or map), then run comparison.",
     },
     option: {
       fastest: "Fastest",
