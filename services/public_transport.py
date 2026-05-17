@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from math import ceil
 from typing import TYPE_CHECKING, Any
@@ -113,6 +113,100 @@ def format_gtfs_seconds(value: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+@dataclass(frozen=True)
+class GtfsServiceDayContext:
+    service_date: date
+    service_day_start: datetime
+    request_offset_seconds: int
+
+
+def gtfs_service_day_context(requested_departure_at: datetime) -> GtfsServiceDayContext:
+    rollover_hour = settings.public_transport_service_day_rollover_hour
+    local = requested_departure_at.replace(microsecond=0)
+    service_date = local.date()
+    day_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    offset_seconds = int((local - day_start).total_seconds())
+
+    if local.hour < rollover_hour:
+        service_date -= timedelta(days=1)
+        offset_seconds += 24 * 3600
+
+    return GtfsServiceDayContext(
+        service_date=service_date,
+        service_day_start=datetime.combine(service_date, datetime.min.time()),
+        request_offset_seconds=offset_seconds,
+    )
+
+
+def schedule_reference_departure_at(requested_departure_at: datetime) -> datetime:
+    """Pick GTFS calendar day from today when planning ahead (DB has today's pattern)."""
+    today = date.today()
+    if requested_departure_at.date() > today:
+        return datetime.combine(today, requested_departure_at.time())
+    return requested_departure_at
+
+
+def schedule_service_date_for(requested_departure_at: datetime) -> date:
+    return schedule_search_context(requested_departure_at).service_date
+
+
+def schedule_search_context(requested_departure_at: datetime) -> GtfsServiceDayContext:
+    return gtfs_service_day_context(
+        schedule_reference_departure_at(requested_departure_at)
+    )
+
+
+def resolve_schedule_service_ids(
+    engine: Engine,
+    requested_departure_at: datetime,
+) -> set[str]:
+    primary_date = schedule_service_date_for(requested_departure_at)
+    service_ids = fetch_active_service_ids(engine, primary_date)
+    if service_ids:
+        return service_ids
+
+    fallback_dates: list[date] = []
+    requested_day = requested_departure_at.date()
+    today = date.today()
+    for candidate in (requested_day, today):
+        if candidate not in fallback_dates:
+            fallback_dates.append(candidate)
+
+    for fallback_date in fallback_dates:
+        if fallback_date == primary_date:
+            continue
+        service_ids = fetch_active_service_ids(engine, fallback_date)
+        if service_ids:
+            return service_ids
+
+    return set()
+
+
+def display_service_day_start(requested_departure_at: datetime) -> datetime:
+    return datetime.combine(requested_departure_at.date(), datetime.min.time())
+
+
+def attach_gtfs_seconds_to_display_day(
+    display_day_start: datetime,
+    gtfs_seconds: int,
+) -> datetime:
+    """Map GTFS 24:xx+ times onto the user-selected calendar day for display."""
+    day_seconds = 24 * 3600
+    while gtfs_seconds >= day_seconds:
+        gtfs_seconds -= day_seconds
+    return display_day_start + timedelta(seconds=gtfs_seconds)
+
+
+def attach_gtfs_timedelta_to_display_day(
+    display_day_start: datetime,
+    offset: timedelta,
+) -> datetime:
+    return attach_gtfs_seconds_to_display_day(
+        display_day_start,
+        int(offset.total_seconds()),
+    )
+
+
 def estimate_walking_seconds(
     distance_m: float,
     walking_speed_mps: float | None = None,
@@ -214,12 +308,8 @@ def build_journey_from_candidate(
     walk_route_cache: WalkRouteCache | None = None,
     include_geometry: bool = True,
 ) -> PublicTransportJourney | None:
-    request_offset = requested_departure_at - requested_departure_at.replace(
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
+    search_context = schedule_search_context(requested_departure_at)
+    request_offset = timedelta(seconds=search_context.request_offset_seconds)
     departure_offset = parse_gtfs_time(candidate.departure_time)
     arrival_offset = parse_gtfs_time(candidate.arrival_time)
 
@@ -239,14 +329,15 @@ def build_journey_from_candidate(
     if request_offset + timedelta(seconds=access_walk_seconds) > departure_offset:
         return None
 
-    service_day_start = requested_departure_at.replace(
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
+    display_day_start = display_service_day_start(requested_departure_at)
+    vehicle_departure_at = attach_gtfs_timedelta_to_display_day(
+        display_day_start,
+        departure_offset,
     )
-    vehicle_departure_at = service_day_start + departure_offset
-    vehicle_arrival_at = service_day_start + arrival_offset
+    vehicle_arrival_at = attach_gtfs_timedelta_to_display_day(
+        display_day_start,
+        arrival_offset,
+    )
     egress_leg = build_walk_leg(
         from_name=destination_stop.stop_name,
         to_name="destination",
@@ -501,12 +592,8 @@ def build_journey_from_segments(
         return None
 
     ride_segments = compress_segments_into_rides(segments)
-    service_day_start = requested_departure_at.replace(
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
+    search_context = schedule_search_context(requested_departure_at)
+    display_day_start = display_service_day_start(requested_departure_at)
     access_leg = build_walk_leg(
         from_name="origin",
         to_name=origin_stop.stop_name,
@@ -522,8 +609,7 @@ def build_journey_from_segments(
     first_departure_seconds = gtfs_time_to_seconds(ride_segments[0].departure_time)
 
     if (
-        int((requested_departure_at - service_day_start).total_seconds())
-        + access_walk_seconds
+        search_context.request_offset_seconds + access_walk_seconds
         > first_departure_seconds
     ):
         return None
@@ -535,8 +621,14 @@ def build_journey_from_segments(
     for ride in ride_segments:
         departure_seconds = gtfs_time_to_seconds(ride.departure_time)
         arrival_seconds = gtfs_time_to_seconds(ride.arrival_time)
-        departure_at = service_day_start + timedelta(seconds=departure_seconds)
-        arrival_at = service_day_start + timedelta(seconds=arrival_seconds)
+        departure_at = attach_gtfs_seconds_to_display_day(
+            display_day_start,
+            departure_seconds,
+        )
+        arrival_at = attach_gtfs_seconds_to_display_day(
+            display_day_start,
+            arrival_seconds,
+        )
         duration_minutes = ceil((arrival_seconds - departure_seconds) / 60)
         in_vehicle_minutes += duration_minutes
 
@@ -573,8 +665,9 @@ def build_journey_from_segments(
             )
         )
 
-    final_vehicle_arrival_at = service_day_start + timedelta(
-        seconds=gtfs_time_to_seconds(ride_segments[-1].arrival_time)
+    final_vehicle_arrival_at = attach_gtfs_seconds_to_display_day(
+        display_day_start,
+        gtfs_time_to_seconds(ride_segments[-1].arrival_time),
     )
     egress_leg = build_walk_leg(
         from_name=destination_stop.stop_name,
@@ -732,20 +825,14 @@ def find_public_transport_connections(
     if not origin_stops:
         return []
 
-    service_ids = fetch_active_service_ids(engine, requested_departure_at.date())
+    search_context = schedule_search_context(requested_departure_at)
+    service_ids = resolve_schedule_service_ids(engine, requested_departure_at)
     if not service_ids:
         return []
 
     origin_stop_by_id = {stop.stop_id: stop for stop in origin_stops}
-    service_day_start = requested_departure_at.replace(
-        hour=0,
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
-    request_offset_seconds = int(
-        (requested_departure_at - service_day_start).total_seconds()
-    )
+    service_day_start = display_service_day_start(requested_departure_at)
+    request_offset_seconds = search_context.request_offset_seconds
     origin_ready_seconds = {
         stop.stop_id: (
             request_offset_seconds + estimate_walking_seconds(stop.distance_m)

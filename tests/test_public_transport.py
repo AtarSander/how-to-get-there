@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from database.queries import ConnectionSegment, DirectConnectionCandidate, NearbyStop
 from services.car_routing import GeoPoint
 from services.public_transport import (
+    attach_gtfs_seconds_to_display_day,
     build_journey_from_candidate,
     build_journey_from_segments,
     find_public_transport_connections,
@@ -20,6 +21,64 @@ def test_parse_gtfs_time_supports_hours_above_24() -> None:
 
 def test_format_gtfs_time_serializes_timedelta() -> None:
     assert format_gtfs_time(timedelta(hours=5, minutes=7, seconds=9)) == "05:07:09"
+
+
+def test_attach_gtfs_seconds_wraps_extended_hours_onto_display_day() -> None:
+    display_day_start = datetime(2026, 5, 19, 0, 0, 0)
+    attached = attach_gtfs_seconds_to_display_day(
+        display_day_start,
+        24 * 3600 + 41 * 60,
+    )
+    assert attached == datetime(2026, 5, 19, 0, 41, 0)
+
+
+def test_build_journey_total_minutes_ignores_extra_24h_in_gtfs_times() -> None:
+    requested = datetime(2026, 5, 19, 0, 22, 0)
+    segment = ConnectionSegment(
+        trip_id="trip-1",
+        route_id="route-1",
+        route_short_name="N62",
+        trip_headsign="Test",
+        from_stop_id="a",
+        from_stop_name="Start",
+        to_stop_id="b",
+        to_stop_name="End",
+        departure_time="24:30:00",
+        arrival_time="24:41:00",
+        from_lat=52.23,
+        from_lon=21.01,
+        to_lat=52.25,
+        to_lon=21.03,
+        from_stop_sequence=1,
+        to_stop_sequence=2,
+        from_shape_dist_traveled=None,
+        to_shape_dist_traveled=None,
+    )
+
+    with patch(
+        "services.public_transport.build_walk_leg",
+        side_effect=lambda **kwargs: type(
+            "Leg",
+            (),
+            {
+                "departure_at": kwargs["departure_at"],
+                "arrival_at": kwargs["departure_at"] + timedelta(minutes=6),
+                "duration_minutes": 6,
+            },
+        )(),
+    ):
+        journey = build_journey_from_segments(
+            requested_departure_at=requested,
+            origin_point=GeoPoint(52.229, 21.004),
+            destination_point=GeoPoint(52.272, 21.045),
+            origin_stop=NearbyStop("a", "Start", 52.229, 21.004, 100),
+            destination_stop=NearbyStop("b", "End", 52.272, 21.045, 80),
+            segments=[segment],
+            include_geometry=False,
+        )
+
+    assert journey is not None
+    assert journey.total_minutes < 60
 
 
 def test_build_journey_skips_unreachable_departure() -> None:

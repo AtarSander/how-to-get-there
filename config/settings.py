@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str | None = None
     database_private_url: str | None = None
@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     public_transport_stop_limit: int = 25
     public_transport_max_transfers: int = 2
     public_transport_search_window_hours: int = 4
+    public_transport_service_day_rollover_hour: int = 4
     public_transport_segment_limit: int = 50_000
     public_transport_transfer_buffer_seconds: int = 120
     public_transport_result_limit: int = 3
