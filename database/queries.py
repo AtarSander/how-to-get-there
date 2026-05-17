@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from config.osm import ROAD_EDGES_TABLE, ROAD_NODES_TABLE
 from config.settings import settings
 
 if TYPE_CHECKING:
@@ -92,6 +94,12 @@ class RoadEdgeRecord:
     max_speed_kmh: float | None
     road_name: str | None
     oneway: bool
+    highway: str | None = None
+    source_street_count: int | None = None
+    target_street_count: int | None = None
+    source_highway: str | None = None
+    target_highway: str | None = None
+    geometry_positions: tuple[tuple[float, float], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -334,6 +342,38 @@ def _optional_float(value: object) -> float | None:
     return float(value)
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _optional_geometry_positions(
+    value: object,
+) -> tuple[tuple[float, float], ...] | None:
+    if value is None:
+        return None
+
+    parsed = json.loads(str(value))
+    positions = tuple((float(lat), float(lon)) for lat, lon in parsed)
+    return positions or None
+
+
+def _table_columns(engine: Engine, table_name: str) -> set[str]:
+    _, text = _require_sqlalchemy()
+    query = text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = :table_name;
+        """
+    )
+
+    with engine.begin() as conn:
+        rows = conn.execute(query, {"table_name": table_name}).mappings()
+        return {str(row["column_name"]) for row in rows}
+
+
 def fetch_trip_shape_id(engine: Engine, trip_id: str) -> str | None:
     _, text = _require_sqlalchemy()
     query = text(
@@ -534,30 +574,58 @@ def fetch_connection_segments(
 
 def fetch_road_edges(engine: Engine, limit: int | None = None) -> list[RoadEdgeRecord]:
     _, text = _require_sqlalchemy()
+    edge_columns = _table_columns(engine, ROAD_EDGES_TABLE)
+    node_columns = _table_columns(engine, ROAD_NODES_TABLE)
     limit_clause = "LIMIT :limit" if limit is not None else ""
+    highway_expr = "edges.highway" if "highway" in edge_columns else "NULL"
+    geometry_positions_expr = (
+        "edges.geometry_positions" if "geometry_positions" in edge_columns else "NULL"
+    )
+    source_street_count_expr = (
+        "source_nodes.street_count" if "street_count" in node_columns else "NULL"
+    )
+    target_street_count_expr = (
+        "target_nodes.street_count" if "street_count" in node_columns else "NULL"
+    )
+    source_highway_expr = (
+        "source_nodes.highway" if "highway" in node_columns else "NULL"
+    )
+    target_highway_expr = (
+        "target_nodes.highway" if "highway" in node_columns else "NULL"
+    )
     query = text(
         f"""
         SELECT
-            edge_id,
-            source,
-            target,
-            source_lat,
-            source_lon,
-            target_lat,
-            target_lon,
-            length_m,
-            max_speed_kmh,
-            name AS road_name,
-            oneway
-        FROM osm_road_edges
-        WHERE source IS NOT NULL
-          AND target IS NOT NULL
-          AND source_lat IS NOT NULL
-          AND source_lon IS NOT NULL
-          AND target_lat IS NOT NULL
-          AND target_lon IS NOT NULL
-          AND length_m IS NOT NULL
-          AND length_m > 0
+            edges.edge_id,
+            edges.source,
+            edges.target,
+            edges.source_lat,
+            edges.source_lon,
+            edges.target_lat,
+            edges.target_lon,
+            edges.length_m,
+            edges.max_speed_kmh,
+            edges.name AS road_name,
+            edges.oneway,
+            {highway_expr} AS highway,
+            {source_street_count_expr} AS source_street_count,
+            {target_street_count_expr} AS target_street_count,
+            {source_highway_expr} AS source_highway,
+            {target_highway_expr} AS target_highway,
+            {geometry_positions_expr} AS geometry_positions
+        FROM {ROAD_EDGES_TABLE} AS edges
+        LEFT JOIN {ROAD_NODES_TABLE} AS source_nodes
+          ON source_nodes.node_id = edges.source
+        LEFT JOIN {ROAD_NODES_TABLE} AS target_nodes
+          ON target_nodes.node_id = edges.target
+        WHERE edges.source IS NOT NULL
+          AND edges.target IS NOT NULL
+          AND edges.source_lat IS NOT NULL
+          AND edges.source_lon IS NOT NULL
+          AND edges.target_lat IS NOT NULL
+          AND edges.target_lon IS NOT NULL
+          AND edges.length_m IS NOT NULL
+          AND edges.length_m > 0
         {limit_clause};
         """
     )
@@ -584,6 +652,14 @@ def fetch_road_edges(engine: Engine, limit: int | None = None) -> list[RoadEdgeR
                 ),
                 road_name=row["road_name"],
                 oneway=bool(row["oneway"]),
+                highway=row["highway"],
+                source_street_count=_optional_int(row["source_street_count"]),
+                target_street_count=_optional_int(row["target_street_count"]),
+                source_highway=row["source_highway"],
+                target_highway=row["target_highway"],
+                geometry_positions=_optional_geometry_positions(
+                    row["geometry_positions"]
+                ),
             )
             for row in rows
         ]

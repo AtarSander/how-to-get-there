@@ -30,6 +30,11 @@ def serialize_car_segment(segment: CarRouteSegment) -> dict[str, Any]:
         "from_lon": segment.from_lon,
         "to_lat": segment.to_lat,
         "to_lon": segment.to_lon,
+        "path_positions": (
+            [[lat, lon] for lat, lon in segment.path_positions]
+            if segment.path_positions
+            else None
+        ),
     }
 
 

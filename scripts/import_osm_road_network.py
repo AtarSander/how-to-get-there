@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import math
 import re
 import sys
@@ -107,6 +108,34 @@ def is_oneway(value: Any) -> bool:
     return str(value).lower() in OSM_TRUE_VALUES
 
 
+def edge_geometry_positions(
+    geometry: Any,
+    source_lat: float,
+    source_lon: float,
+    target_lat: float,
+    target_lon: float,
+) -> list[tuple[float, float]]:
+    coords = getattr(geometry, "coords", None)
+    if coords is None:
+        return [(source_lat, source_lon), (target_lat, target_lon)]
+
+    positions = [(float(lat), float(lon)) for lon, lat in coords]
+    if not positions:
+        return [(source_lat, source_lon), (target_lat, target_lon)]
+
+    if positions[0] != (source_lat, source_lon):
+        positions.insert(0, (source_lat, source_lon))
+    if positions[-1] != (target_lat, target_lon):
+        positions.append((target_lat, target_lon))
+
+    return positions
+
+
+def linestring_wkt_from_positions(positions: list[tuple[float, float]]) -> str:
+    coordinates = ", ".join(f"{lon} {lat}" for lat, lon in positions)
+    return f"LINESTRING({coordinates})"
+
+
 def drop_osm_road_tables(engine: Engine) -> None:
     logger.info("Dropping existing OSM road tables.")
 
@@ -130,6 +159,13 @@ def graph_to_dataframes(graph) -> tuple[pd.DataFrame, pd.DataFrame]:
             "osmid": [str(node_id) for node_id in nodes_gdf.index],
             "lat": nodes_gdf["y"].astype(float).values,
             "lon": nodes_gdf["x"].astype(float).values,
+            "highway": [
+                normalize_osm_value(value)
+                for value in nodes_gdf.get(
+                    "highway",
+                    pd.Series(index=nodes_gdf.index),
+                ).values
+            ],
             "street_count": nodes_gdf.get("street_count", pd.Series(index=nodes_gdf.index))
             .fillna(0)
             .astype(int)
@@ -146,6 +182,13 @@ def graph_to_dataframes(graph) -> tuple[pd.DataFrame, pd.DataFrame]:
     for (source, target, key), row in edges_gdf.iterrows():
         source_lat, source_lon = node_points[str(source)]
         target_lat, target_lon = node_points[str(target)]
+        positions = edge_geometry_positions(
+            row.get("geometry"),
+            source_lat,
+            source_lon,
+            target_lat,
+            target_lon,
+        )
 
         edge_rows.append(
             {
@@ -168,6 +211,8 @@ def graph_to_dataframes(graph) -> tuple[pd.DataFrame, pd.DataFrame]:
                 "bridge": normalize_osm_value(row.get("bridge")),
                 "tunnel": normalize_osm_value(row.get("tunnel")),
                 "access": normalize_osm_value(row.get("access")),
+                "geometry_positions": json.dumps(positions),
+                "geometry_wkt": linestring_wkt_from_positions(positions),
             }
         )
 
@@ -209,6 +254,7 @@ def load_base_tables(
             "osmid": Text(),
             "lat": Float(),
             "lon": Float(),
+            "highway": Text(),
             "street_count": Integer(),
         },
     )
@@ -238,6 +284,8 @@ def load_base_tables(
             "bridge": Text(),
             "tunnel": Text(),
             "access": Text(),
+            "geometry_positions": Text(),
+            "geometry_wkt": Text(),
         },
     )
 
@@ -285,12 +333,15 @@ def add_postgis_geometry(engine: Engine) -> None:
 
         conn.execute(text(f"""
             UPDATE {ROAD_EDGES_TABLE}
-            SET geom = ST_SetSRID(
-                ST_MakeLine(
-                    ST_MakePoint(source_lon, source_lat),
-                    ST_MakePoint(target_lon, target_lat)
-                ),
-                4326
+            SET geom = COALESCE(
+                ST_SetSRID(ST_GeomFromText(geometry_wkt), 4326),
+                ST_SetSRID(
+                    ST_MakeLine(
+                        ST_MakePoint(source_lon, source_lat),
+                        ST_MakePoint(target_lon, target_lat)
+                    ),
+                    4326
+                )
             )
             WHERE source_lon IS NOT NULL
               AND source_lat IS NOT NULL

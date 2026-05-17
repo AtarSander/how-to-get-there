@@ -171,6 +171,12 @@ def road_edge_from_record(record: RoadEdgeRecord) -> RoadEdge:
         max_speed_kmh=record.max_speed_kmh,
         road_name=record.road_name,
         bidirectional=not record.oneway,
+        highway=record.highway,
+        source_street_count=record.source_street_count,
+        target_street_count=record.target_street_count,
+        source_highway=record.source_highway,
+        target_highway=record.target_highway,
+        geometry_positions=record.geometry_positions,
     )
 
 

@@ -18,7 +18,7 @@ def test_hourly_multipliers_from_volumes_uses_hourly_apr_intensity() -> None:
     } | {8: 220.0})
 
     assert multipliers[2] == 1.0
-    assert 2.0 < multipliers[8] < 2.5
+    assert 1.2 < multipliers[8] < 1.25
 
 
 def test_parse_zdm_apr_feature_extracts_two_direction_hourly_profiles() -> None:

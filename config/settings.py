@@ -39,9 +39,18 @@ class Settings(BaseSettings):
     car_road_edges_limit: int | None = None
     car_traffic_profile_enabled: bool = True
     car_traffic_profile_min_multiplier: float = 1.0
-    car_traffic_profile_max_multiplier: float = 2.5
+    car_traffic_profile_max_multiplier: float = 1.6
+    car_traffic_profile_strength: float = 0.2
     car_traffic_center_lat: float = 52.2297
     car_traffic_center_lon: float = 21.0122
+    car_access_egress_speed_kmh: float = 15.0
+    car_intersection_penalty_seconds: int = 3
+    car_traffic_signal_penalty_seconds: int = 18
+    car_right_turn_penalty_seconds: int = 3
+    car_left_turn_penalty_seconds: int = 8
+    car_u_turn_penalty_seconds: int = 25
+    car_minor_turn_angle_degrees: float = 30.0
+    car_u_turn_angle_degrees: float = 150.0
 
     zdm_apr_feature_layer_url: str = (
         "https://services7.arcgis.com/gpQ1tnydOYYnGpcS/arcgis/rest/services/"

@@ -37,6 +37,11 @@ def build_line_from_car_route(
     _append_unique(positions, origin.lat, origin.lon)
 
     for segment in car_route.segments:
+        if segment.path_positions:
+            for lat, lon in segment.path_positions:
+                _append_unique(positions, lat, lon)
+            continue
+
         _append_unique(positions, segment.from_lat, segment.from_lon)
         _append_unique(positions, segment.to_lat, segment.to_lon)
 

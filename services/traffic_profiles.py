@@ -34,7 +34,11 @@ def hourly_multipliers_from_volumes(
         return {}
 
     return {
-        hour: clamp_multiplier(volume / average_volume)
+        hour: clamp_multiplier(
+            1
+            + ((volume / average_volume) - 1)
+            * settings.car_traffic_profile_strength
+        )
         for hour, volume in volumes.items()
     }
 
