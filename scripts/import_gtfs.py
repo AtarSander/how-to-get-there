@@ -122,10 +122,14 @@ def find_import_dates(calendar_df: pd.DataFrame) -> list[date]:
         else:
             start_date = today
 
-    return [
+    dates = [
         start_date + timedelta(days=offset)
         for offset in range(max(settings.gtfs_import_days, 1))
     ]
+    previous_day = dates[0] - timedelta(days=1)
+    if previous_day not in dates:
+        dates.insert(0, previous_day)
+    return dates
 
 
 def get_active_service_ids_for_dates(
