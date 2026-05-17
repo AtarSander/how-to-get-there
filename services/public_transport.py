@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from math import ceil
 from typing import TYPE_CHECKING, Any
@@ -680,6 +680,10 @@ def add_journey_candidate(
     )
 
 
+def schedule_service_date_for(_requested_departure_at: datetime) -> date:
+    return date.today()
+
+
 def find_public_transport_connections(
     engine: Engine,
     origin_lat: float,
@@ -732,7 +736,10 @@ def find_public_transport_connections(
     if not origin_stops:
         return []
 
-    service_ids = fetch_active_service_ids(engine, requested_departure_at.date())
+    service_ids = fetch_active_service_ids(
+        engine,
+        schedule_service_date_for(requested_departure_at),
+    )
     if not service_ids:
         return []
 
