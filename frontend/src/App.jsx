@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DirectionsCarIcon from "@mui/icons-material/DirectionsCar";
 import DirectionsTransitIcon from "@mui/icons-material/DirectionsTransit";
 import LocalParkingIcon from "@mui/icons-material/LocalParking";
@@ -38,6 +38,30 @@ import { SUPPORTED_LOCALES } from "./language/translations";
 import RouteMap from "./RouteMap";
 
 const WARSAW_PRESET_KEYS = ["centrum", "wola", "praga", "mokotow"];
+const DEPARTURE_PLANNING_DAYS = 7;
+
+function toLocalDateString(value = new Date()) {
+  const date = new Date(value);
+  date.setSeconds(0, 0);
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+function addDaysToDateString(dateString, days) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const shifted = new Date(year, month - 1, day);
+  shifted.setDate(shifted.getDate() + days);
+  return toLocalDateString(shifted);
+}
+
+function toLocalDateTimeString(value = new Date()) {
+  const date = new Date(value);
+  date.setSeconds(0, 0);
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 16);
+}
 
 const WARSAW_PRESETS = {
   centrum: { lat: 52.2297, lon: 21.0122 },
@@ -295,13 +319,28 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [activeMode, setActiveMode] = useState(null);
 
-  const departureDefault = useMemo(() => {
-    const now = new Date();
-    now.setSeconds(0, 0);
-    const offset = now.getTimezoneOffset();
-    const local = new Date(now.getTime() - offset * 60_000);
-    return local.toISOString().slice(0, 16);
+  const departureBounds = useMemo(() => {
+    const today = toLocalDateString();
+    const end = addDaysToDateString(today, DEPARTURE_PLANNING_DAYS);
+    return {
+      min: `${today}T00:00`,
+      max: `${end}T23:59`,
+      start: today,
+      end,
+    };
   }, []);
+
+  useEffect(() => {
+    if (!departureAt) {
+      return;
+    }
+    const selectedDate = departureAt.slice(0, 10);
+    if (selectedDate < departureBounds.start || selectedDate > departureBounds.end) {
+      setDepartureAt("");
+    }
+  }, [departureAt, departureBounds]);
+
+  const departureDefault = useMemo(() => toLocalDateTimeString(), []);
 
   function handleMapClick(lat, lon, target) {
     const point = { lat, lon, label: "" };
@@ -471,9 +510,17 @@ export default function App() {
                 onChange={(e) => setDepartureAt(e.target.value)}
                 fullWidth
                 size="small"
+                helperText={t("form.departurePlanningHint", {
+                  days: DEPARTURE_PLANNING_DAYS,
+                  end: departureBounds.end,
+                })}
                 slotProps={{
                   inputLabel: { shrink: true },
-                  htmlInput: { placeholder: departureDefault },
+                  htmlInput: {
+                    placeholder: departureDefault,
+                    min: departureBounds.min,
+                    max: departureBounds.max,
+                  },
                 }}
               />
 

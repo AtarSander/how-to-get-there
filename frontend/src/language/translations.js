@@ -32,6 +32,8 @@ export const translations = {
       presetForOrigin: "Start",
       presetForDestination: "Cel",
       departureOptional: "Wyjazd (opcjonalnie)",
+      departurePlanningHint:
+        "Planowanie do {{days}} dni do przodu (do {{end}}).",
       compare: "Porównaj opcje",
       searching: "Szukam tras…",
       unknownError: "Nieznany błąd.",
@@ -109,6 +111,8 @@ export const translations = {
       presetForOrigin: "Start",
       presetForDestination: "Destination",
       departureOptional: "Departure (optional)",
+      departurePlanningHint:
+        "Plan up to {{days}} days ahead (through {{end}}).",
       compare: "Compare options",
       searching: "Searching routes…",
       unknownError: "Unknown error.",
