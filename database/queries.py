@@ -94,6 +94,27 @@ class RoadEdgeRecord:
     oneway: bool
 
 
+@dataclass(frozen=True)
+class ZdmAprPointRecord:
+    source_object_id: int
+    point_number: int | None
+    street: str | None
+    location_section: str | None
+    district: str | None
+    screen: str | None
+    lat: float
+    lon: float
+    source_year: int
+
+
+@dataclass(frozen=True)
+class ZdmAprHourlyProfileRecord:
+    source_object_id: int
+    direction: int
+    hour: int
+    volume: int
+
+
 def fetch_nearest_stops(
     engine: Engine,
     lat: float,
@@ -566,6 +587,212 @@ def fetch_road_edges(engine: Engine, limit: int | None = None) -> list[RoadEdgeR
             )
             for row in rows
         ]
+
+
+def ensure_zdm_apr_tables(engine: Engine) -> None:
+    _, text = _require_sqlalchemy()
+
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS zdm_apr_points (
+                    source_object_id INTEGER PRIMARY KEY,
+                    point_number INTEGER,
+                    street TEXT,
+                    location_section TEXT,
+                    district TEXT,
+                    screen TEXT,
+                    lat DOUBLE PRECISION NOT NULL,
+                    lon DOUBLE PRECISION NOT NULL,
+                    source_year INTEGER NOT NULL,
+                    geom geometry(Point, 4326) NOT NULL,
+                    imported_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS zdm_apr_hourly_profiles (
+                    source_object_id INTEGER NOT NULL
+                        REFERENCES zdm_apr_points(source_object_id)
+                        ON DELETE CASCADE,
+                    direction SMALLINT NOT NULL CHECK (direction IN (1, 2)),
+                    hour SMALLINT NOT NULL CHECK (hour >= 0 AND hour <= 23),
+                    volume INTEGER NOT NULL CHECK (volume >= 0),
+                    PRIMARY KEY (source_object_id, direction, hour)
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS zdm_apr_points_geom_idx
+                ON zdm_apr_points
+                USING GIST (geom);
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS zdm_apr_hourly_profiles_hour_idx
+                ON zdm_apr_hourly_profiles (hour);
+                """
+            )
+        )
+
+
+def replace_zdm_apr_profiles(
+    engine: Engine,
+    points: list[ZdmAprPointRecord],
+    hourly_profiles: list[ZdmAprHourlyProfileRecord],
+) -> None:
+    if not points:
+        raise ValueError("Cannot import empty ZDM APR point dataset.")
+
+    _, text = _require_sqlalchemy()
+    ensure_zdm_apr_tables(engine)
+
+    point_rows = [
+        {
+            "source_object_id": point.source_object_id,
+            "point_number": point.point_number,
+            "street": point.street,
+            "location_section": point.location_section,
+            "district": point.district,
+            "screen": point.screen,
+            "lat": point.lat,
+            "lon": point.lon,
+            "source_year": point.source_year,
+        }
+        for point in points
+    ]
+    profile_rows = [
+        {
+            "source_object_id": profile.source_object_id,
+            "direction": profile.direction,
+            "hour": profile.hour,
+            "volume": profile.volume,
+        }
+        for profile in hourly_profiles
+    ]
+
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE zdm_apr_hourly_profiles, zdm_apr_points;"))
+        conn.execute(
+            text(
+                """
+                INSERT INTO zdm_apr_points (
+                    source_object_id,
+                    point_number,
+                    street,
+                    location_section,
+                    district,
+                    screen,
+                    lat,
+                    lon,
+                    source_year,
+                    geom,
+                    imported_at
+                )
+                VALUES (
+                    :source_object_id,
+                    :point_number,
+                    :street,
+                    :location_section,
+                    :district,
+                    :screen,
+                    :lat,
+                    :lon,
+                    :source_year,
+                    ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),
+                    now()
+                );
+                """
+            ),
+            point_rows,
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO zdm_apr_hourly_profiles (
+                    source_object_id,
+                    direction,
+                    hour,
+                    volume
+                )
+                VALUES (
+                    :source_object_id,
+                    :direction,
+                    :hour,
+                    :volume
+                );
+                """
+            ),
+            profile_rows,
+        )
+
+
+def fetch_zdm_apr_hourly_volumes(engine: Engine) -> dict[int, float]:
+    _, text = _require_sqlalchemy()
+    table_exists_query = text(
+        """
+        SELECT to_regclass('zdm_apr_hourly_profiles') IS NOT NULL AS exists;
+        """
+    )
+    volumes_query = text(
+        """
+        SELECT hour, SUM(volume)::float AS volume
+        FROM zdm_apr_hourly_profiles
+        GROUP BY hour
+        ORDER BY hour ASC;
+        """
+    )
+
+    with engine.begin() as conn:
+        table_exists = conn.execute(table_exists_query).scalar()
+        if not table_exists:
+            return {}
+
+        rows = conn.execute(volumes_query).mappings()
+        return {int(row["hour"]): float(row["volume"]) for row in rows}
+
+
+def fetch_zdm_apr_directional_hourly_volumes(
+    engine: Engine,
+) -> dict[int, dict[int, float]]:
+    _, text = _require_sqlalchemy()
+    table_exists_query = text(
+        """
+        SELECT to_regclass('zdm_apr_hourly_profiles') IS NOT NULL AS exists;
+        """
+    )
+    volumes_query = text(
+        """
+        SELECT direction, hour, SUM(volume)::float AS volume
+        FROM zdm_apr_hourly_profiles
+        GROUP BY direction, hour
+        ORDER BY direction ASC, hour ASC;
+        """
+    )
+
+    with engine.begin() as conn:
+        table_exists = conn.execute(table_exists_query).scalar()
+        if not table_exists:
+            return {}
+
+        rows = conn.execute(volumes_query).mappings()
+        volumes: dict[int, dict[int, float]] = {}
+        for row in rows:
+            direction = int(row["direction"])
+            volumes.setdefault(direction, {})[int(row["hour"])] = float(row["volume"])
+
+        return volumes
 
 
 def fetch_reachable_connection_segments(

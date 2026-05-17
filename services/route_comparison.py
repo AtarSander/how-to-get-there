@@ -20,6 +20,7 @@ from services.public_transport import (
     PublicTransportJourney,
     find_public_transport_connections,
 )
+from services.traffic_profiles import load_zdm_apr_traffic_profile
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -219,6 +220,7 @@ def compare_routes(
         road_edges=road_edges,
         road_edges_loader=road_edges_loader,
     )
+    resolved_traffic_profile = traffic_profile or load_zdm_apr_traffic_profile(engine)
 
     car_route = (
         car_route_finder(
@@ -226,14 +228,14 @@ def compare_routes(
             origin,
             destination,
             departure_at,
-            traffic_profile,
+            resolved_traffic_profile,
         )
         if resolved_road_edges
         else estimate_direct_car_route(
             origin=origin,
             destination=destination,
             departure_at=departure_at,
-            traffic_profile=traffic_profile,
+            traffic_profile=resolved_traffic_profile,
         )
     )
     if car_route is None:
@@ -280,7 +282,7 @@ def compare_routes(
         destination_lon=destination_lon,
         departure_at=departure_at,
         road_edges=resolved_road_edges,
-        traffic_profile=traffic_profile,
+        traffic_profile=resolved_traffic_profile,
         public_transport_finder=public_transport_finder,
     )
     if park_and_ride_routes:

@@ -37,6 +37,19 @@ class Settings(BaseSettings):
     car_default_speed_kmh: float = 40.0
     car_use_database_edges: bool = True
     car_road_edges_limit: int | None = None
+    car_traffic_profile_enabled: bool = True
+    car_traffic_profile_min_multiplier: float = 1.0
+    car_traffic_profile_max_multiplier: float = 2.5
+    car_traffic_center_lat: float = 52.2297
+    car_traffic_center_lon: float = 21.0122
+
+    zdm_apr_feature_layer_url: str = (
+        "https://services7.arcgis.com/gpQ1tnydOYYnGpcS/arcgis/rest/services/"
+        "APR_ZDM_MAPA_DASHBOARD_2023/FeatureServer/0"
+    )
+    zdm_apr_source_year: int = 2023
+    zdm_apr_download_timeout_seconds: int = 60
+    zdm_apr_download_page_size: int = 2_000
 
     public_transport_walking_speed_mps: float = 1.4
     public_transport_max_stop_distance_m: int = 1_000
